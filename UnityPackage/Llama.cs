@@ -103,7 +103,8 @@ public class Llama : MonoBehaviour {
       }
       else {
         if (Temperature == 0) {
-          ArgMax(_runState.logits, _runState.outputToken, _config.vocab_size);
+          FindMax(_runState.logits, _runState.outputToken, _runState.softmaxTemp, 
+            _runState.softmaxTempB, _config.vocab_size);
         }
         else {
           ScaleBuffer(_runState.logits, 1.0f / Temperature, _config.vocab_size);
@@ -115,7 +116,7 @@ public class Llama : MonoBehaviour {
           if (_sequenceComplete) {
             return;
           }
-
+          
           if (request.hasError) {
             Debug.LogError("Failed to readback output token buffer");
             enabled = false;
@@ -528,7 +529,10 @@ public class Llama : MonoBehaviour {
     llamaShader.SetInt("rmsnorm_veclen", vecLen);
     llamaShader.SetFloat("rmsnorm_length", length);
 
+    
+    int threadGroupsX = Mathf.CeilToInt(vecLen / 256.0f);
     llamaShader.Dispatch(_kernels.rmsNorm, 1, 1, 1);
+    //llamaShader.Dispatch(_kernels.rmsNorm, 1, 1, 1);
 
     Profiler.EndSample();
 
@@ -631,7 +635,7 @@ public class Llama : MonoBehaviour {
       Debug.Log(debugString);
     }
   }
-
+  
   private void Softmax(ComputeBuffer bufferInOut, int offset, int length) {
     Profiler.BeginSample("softmax");
 
@@ -729,38 +733,47 @@ public class Llama : MonoBehaviour {
     }
   }
 
-  private void ArgMax(ComputeBuffer logits, ComputeBuffer result, int length) {
-    Profiler.BeginSample("argMax");
+  // TODO: Remove me once we find a good value
+  public int FindMaxStride = 8;
+  
+  private void FindMax(ComputeBuffer sourceBuffer, ComputeBuffer resultBuffer, ComputeBuffer scratchA, 
+    ComputeBuffer scratchB, int inputLength) {
+    scratchA.SetData(Enumerable.Repeat(42, _config.vocab_size).ToArray());
+    scratchB.SetData(Enumerable.Repeat(69, _config.vocab_size).ToArray());
+    
+    ComputeBuffer inputBuffer = scratchA;
+    ComputeBuffer outputBuffer = scratchB;
+    
+    llamaShader.SetBuffer(_kernels.findMax, "findmax_values", sourceBuffer);
+    llamaShader.SetInt("findmax_stride", FindMaxStride);
 
-    _runState.argmaxMax.SetData(new int[] { int.MinValue });
+    // For the first iteration, we just use indices, no input array
+    llamaShader.EnableKeyword("FINDMAX_NO_INPUT");
 
-    llamaShader.SetBuffer(_kernels.argMaxFindMax, "argmax_logits", logits);
-    llamaShader.SetBuffer(_kernels.argMaxFindMax, "argmax_max", _runState.argmaxMax);
-    llamaShader.SetInt("argmax_length", length);
+    while (inputLength > FindMaxStride) {
+      int outputLength = (inputLength + FindMaxStride - 1) / FindMaxStride; 
+      llamaShader.SetBuffer(_kernels.findMax, "findmax_input", inputBuffer);
+      llamaShader.SetBuffer(_kernels.findMax, "findmax_output", outputBuffer);
+      llamaShader.SetInt("findmax_in_length", inputLength);
+      llamaShader.SetInt("findmax_out_length", outputLength);
+      int threadGroupsX = Mathf.CeilToInt(outputLength / 256.0f);
+      llamaShader.Dispatch(_kernels.findMax, threadGroupsX, 1, 1);
 
-    int threadGroupsX = Mathf.CeilToInt(length / 256.0f);
-    llamaShader.Dispatch(_kernels.argMaxFindMax, threadGroupsX, 1, 1);
+      inputLength = outputLength;
+      
+      // Swap input/output buffers
+      (inputBuffer, outputBuffer) = (outputBuffer, inputBuffer);
 
-    if (_Debug) {
-      int[] resultMaxData = new int[1];
-      _runState.argmaxMax.GetData(resultMaxData);
-      float resultMax = (resultMaxData[0] / (256.0f * 256.0f * 256.0f)) - 100.0f;
-      Debug.Log($"Resulting max: {resultMax}");
+      // For further iterations, there is an input array
+      llamaShader.DisableKeyword("FINDMAX_NO_INPUT");
     }
-
-    llamaShader.SetBuffer(_kernels.argMaxWriteResult, "argmax_logits", logits);
-    llamaShader.SetBuffer(_kernels.argMaxWriteResult, "argmax_max", _runState.argmaxMax);
-    llamaShader.SetBuffer(_kernels.argMaxWriteResult, "argmax_result", result);
-
-    llamaShader.Dispatch(_kernels.argMaxWriteResult, threadGroupsX, 1, 1);
-    Profiler.EndSample();
-
-    if (_Debug) {
-      int[] resultData = new int[result.ElementCount<float>()];
-      result.GetData(resultData);
-      int resultValue = resultData[0];
-      Debug.Log($"Resulting token: {resultValue}");
-    }
+    
+    // Special final iteration
+    llamaShader.SetBuffer(_kernels.findMax, "findmax_input", inputBuffer);
+    llamaShader.SetBuffer(_kernels.findMax, "findmax_output", resultBuffer);
+    llamaShader.SetInt("findmax_in_length", inputLength);
+    llamaShader.SetInt("findmax_out_length", 1);
+    llamaShader.Dispatch(_kernels.findMax, 1, 1, 1);
   }
 
   private void SampleLogits(ComputeBuffer runStateLogits, float random) {

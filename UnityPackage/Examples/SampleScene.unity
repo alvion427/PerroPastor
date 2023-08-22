@@ -306,19 +306,20 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   Query: 
-  Temperature: 0
+  Temperature: 0.9
   RandomSeed: -1
   RunOnStart: 255
   QuantizationMode: 1
   CheckpointPath: stories15M.bin
   Tokenizer: {fileID: 606020844}
   llamaShader: {fileID: 7200000, guid: c89e821768bdd7342bc7208f55a9250c, type: 3}
-  MaxTokensPerFrame: 1
+  MaxTokensPerFrame: 5
   QueryTokens: 
   ResultTokens: 
   SaveTrace: 
   CheckTrace: 
   _Debug: 0
+  FindMaxStride: 8
 --- !u!4 &606020843
 Transform:
   m_ObjectHideFlags: 0

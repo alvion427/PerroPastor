@@ -309,12 +309,12 @@ public class RunState : IDisposable {
   public ComputeBuffer v; // value (dim,)
   public ComputeBuffer att; // buffer for scores/attention values (n_heads, seq_len)
   public ComputeBuffer logits; // output logits
-  public ComputeBuffer argmaxMax; // temporary variable for argmax
   public ComputeBuffer outputToken; // output token
 
   // Due to a very bad implementation of softmax we need to use a temporary buffer, but we can remove this once we
   // improve it.
   public ComputeBuffer softmaxTemp;
+  public ComputeBuffer softmaxTempB;
 
   public RunState(LlamaConfig c) {
     x = new ComputeBuffer(c.dim, sizeof(float));
@@ -328,10 +328,10 @@ public class RunState : IDisposable {
     v = new ComputeBuffer(c.dim, sizeof(float));
     att = new ComputeBuffer(c.n_heads * c.seq_len, sizeof(float));
     logits = new ComputeBuffer(c.vocab_size, sizeof(float));
-    argmaxMax = new ComputeBuffer(1, sizeof(int));
     outputToken = new ComputeBuffer(1, sizeof(int));
 
     softmaxTemp = new ComputeBuffer(c.vocab_size, sizeof(float));
+    softmaxTempB = new ComputeBuffer(c.vocab_size, sizeof(float));
   }
 
   public void Dispose() {
@@ -346,9 +346,9 @@ public class RunState : IDisposable {
     v.Dispose();
     att.Dispose();
     logits.Dispose();
-    argmaxMax.Dispose();
     outputToken.Dispose();
     softmaxTemp.Dispose();
+    softmaxTempB.Dispose();
   }
 }
 
@@ -368,9 +368,8 @@ public class LlamaKernels {
   public int silu;
   public int multiply;
   public int weightedSum;
-  public int argMaxFindMax;
-  public int argMaxWriteResult;
   public int sampleLogits;
+  public int findMax;
 
   public LlamaKernels(ComputeShader shader) {
     clear = shader.FindKernel("Clear");
@@ -388,8 +387,7 @@ public class LlamaKernels {
     silu = shader.FindKernel("Silu");
     multiply = shader.FindKernel("Multiply");
     weightedSum = shader.FindKernel("WeightedSum");
-    argMaxFindMax = shader.FindKernel("ArgMaxFindMax");
-    argMaxWriteResult = shader.FindKernel("ArgMaxWriteResult");
     sampleLogits = shader.FindKernel("SampleLogits");
+    findMax = shader.FindKernel("FindMax");
   }
 }

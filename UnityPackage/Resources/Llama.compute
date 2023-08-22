@@ -1,4 +1,5 @@
 #pragma multi_compile QUANT_WEIGHT_32 QUANT_WEIGHT_16
+#pragma multi_compile _ FINDMAX_NO_INPUT
 
 #include "Common.cginc"
 
@@ -145,16 +146,15 @@ RWStructuredBuffer<float4> rmsnorm_Out; // Output values
 uint rmsnorm_veclen; // Length of the input and output vectors
 float rmsnorm_length;
 
-
-[numthreads(1, 1, 1)]
+[numthreads(kThreadsPerGroup, 1, 1)]
 void RMSNorm(uint3 id : SV_DispatchThreadID) {
     const float kEpsilon = 1e-5f;
-
-    uint j = 0;
+    uint i = id.x;
+    if (i >= rmsnorm_veclen) return;
 
     // Calculate sum of squares
     float ss = 0.0f;
-    for (j = 0; j < rmsnorm_veclen; j++) {
+    for (uint j = 0; j < rmsnorm_veclen; j++) {
         ss += dot(rmsnorm_In[j], rmsnorm_In[j]);
     }
     ss /= rmsnorm_length;
@@ -162,10 +162,8 @@ void RMSNorm(uint3 id : SV_DispatchThreadID) {
     ss = 1.0f / sqrt(ss);
 
     // Normalize and scale
-    for (j = 0; j < rmsnorm_veclen; j++) {
-        float4 weights = LoadWeights(rmsnorm_Weight[j]);
-        rmsnorm_Out[j] = weights * (ss * rmsnorm_In[j]);
-    }
+    float4 weights = LoadWeights(rmsnorm_Weight[i]);
+    rmsnorm_Out[i] = weights * (ss * rmsnorm_In[i]);
 }
 
 /// Rope
@@ -234,10 +232,8 @@ void Softmax(uint3 id : SV_DispatchThreadID) {
     
     // Find max value (for numerical stability)
     float max_val = softmax_InOut[softmax_offset];
-    for (i = 1; i < softmax_length; i++) {
-        if (softmax_InOut[softmax_offset + i] > max_val) {
-            max_val = softmax_InOut[softmax_offset + i];
-        }
+    for (uint j = 1; j < softmax_length; j++) {
+        max_val = max(softmax_InOut[softmax_offset + j], max_val);
     }
 
     // Exp and sum
@@ -352,43 +348,6 @@ void WeightedSum(uint3 id : SV_DispatchThreadID) {
     }
 }
 
-/// ArgMax
-#pragma kernel ArgMaxFindMax
-#pragma kernel ArgMaxWriteResult
-
-StructuredBuffer<float> argmax_logits;
-RWStructuredBuffer<int> argmax_result; 
-uint argmax_length;
-
-RWStructuredBuffer<int> argmax_max;
-
-// First find the max value in the logits using atomics and fixed point number
-[numthreads(kThreadsPerGroup, 1, 1)]
-void ArgMaxFindMax(uint3 id : SV_DispatchThreadID) {
-    uint i = id.x;
-    if (i >= argmax_length) return;
-
-    // ARG!!!!! InterlockedMax does not seem to work correctly when there is a mix of positive and negative numbers.
-    // If we have some negatives, then the max will end up being the negative number closest to zero!
-    // We use this gross HACK to just add 100.0f to each logit so that they are all above 0.  This is sadness :(.
-
-    int logitFixed = (argmax_logits[i] + 100.0f) * 256 * 256 * 256;
-    InterlockedMax(argmax_max[0], logitFixed);
-}
-
-// Then write the index of the max value in a second pass.
-// Logits that are tied are a race condition!
-[numthreads(kThreadsPerGroup, 1, 1)]
-void ArgMaxWriteResult(uint3 id : SV_DispatchThreadID) {
-    uint i = id.x;
-    if (i >= argmax_length) return;
-
-    int logitFixed = (argmax_logits[i] + 100.0f) * 256 * 256 * 256;
-    if (logitFixed == argmax_max[0]) {
-        argmax_result[0] = i;
-    }
-}
-
 /// SampleLogits
 #pragma kernel SampleLogits
 
@@ -410,4 +369,43 @@ void SampleLogits(uint3 id : SV_DispatchThreadID) {
             break;
         }
     }
+}
+
+/// FindMax
+#pragma kernel FindMax
+
+StructuredBuffer<float> findmax_values;
+StructuredBuffer<int> findmax_input;
+RWStructuredBuffer<int> findmax_output;
+
+uint findmax_in_length;
+uint findmax_out_length;
+uint findmax_stride;
+
+[numthreads(kThreadsPerGroup, 1, 1)]
+void FindMax(uint3 id : SV_DispatchThreadID) {
+    uint i = id.x;
+    if (i >= findmax_out_length) return;
+    
+    uint start = i * findmax_stride;
+    uint end = min(start + findmax_stride, findmax_in_length);
+
+    int maxIndex = -1;
+    float maxVal = -100000;
+    for (uint j = start; j < end; j++) {
+        int index;
+        #if FINDMAX_NO_INPUT
+            // For the first iteration, we just use indices as input
+            index = j; 
+        #else
+            index = findmax_input[j];
+        #endif
+        float value = findmax_values[index]; 
+        if (value > maxVal)
+        {
+            maxIndex = index;
+            maxVal = value; 
+        }
+    }
+    findmax_output[i] = maxIndex;
 }
