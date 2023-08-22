@@ -112,6 +112,10 @@ public class Llama : MonoBehaviour {
         }
 
         AsyncGPUReadback.Request(_runState.outputToken, (request) => {
+          if (_sequenceComplete) {
+            return;
+          }
+
           if (request.hasError) {
             Debug.LogError("Failed to readback output token buffer");
             enabled = false;
