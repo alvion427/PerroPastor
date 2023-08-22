@@ -17,6 +17,7 @@ I also intend this repo to be a good opportunity to learn how LLMs work.  Althou
 * A "Perro" menu should appear in Unity, choose "Download Sample Model" to download the model and tokenizer files to StreamingAssets/Models
 * Find PerroPastor in your Packages list in the unity Project window, copy the sample scene to your project.
 * Run the scene!
+* Try entering different prompts in the Llama.Prompt field (they shold be the first few words of a story)
 * Check out the [RunTransformer](https://github.com/alvion427/PerroPastor/blob/master/UnityPackage/Llama.cs#L168) function for lots of comments explaining in detail what is going on.
 * To run other models, see "Supported Models" below.
 

@@ -346,7 +346,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: ad23b0817898e1d4e93c42f887a2a172, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  VocabPath: tokenizer2.bin
+  VocabPath: tokenizer.bin
   SOS: 1
   EOS: -1
 --- !u!1 &826573143
