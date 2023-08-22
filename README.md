@@ -4,7 +4,7 @@ With all of these latin american wild animals running around (Llamas, Alpacas, G
 I also intend this repo to be a good opportunity to learn how LLMs work.  Although compute shaders aren't the most readable form of source code, I have included lots of detailed comments in the C# code which should help demystify what is going on.
 
 # Status
-*Lots* of optimization needed.  Even small LLMs (15m and 110m stories libraries provided as examples) take 50+ ms to run on my xps15 with RTX 3050.  There are a lot of very easy optimizations to make to get things running more smoothly, although 8 bit weight quantization and 16bit inference are probably necessary before you can really do anything useful.
+*Lots* of optimization needed.  Even small LLMs (15m and 110m stories libraries provided as examples) take more than 4ms per token to run on my xps15 with RTX 3050.  There are a lot of very easy optimizations to make to get things running more smoothly, although 8 bit weight quantization and 16bit inference are probably necessary before you can really do anything useful.
 
 # Features
 * Run LLMs in 32 bit or with 16 bit quantization (for weights only).
