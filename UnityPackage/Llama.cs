@@ -518,9 +518,6 @@ public class Llama : MonoBehaviour {
   private void RmsNorm(ComputeBuffer bufferIn, ComputeBuffer bufferWeight, ComputeBuffer resultBuffer, int length) {
     Profiler.BeginSample("RmsNorm");
 
-    half[] weightsBefore = new half[bufferWeight.ElementCount<half>()];
-    bufferWeight.GetData(weightsBefore);
-
     int vecLen = ComputeUtils.GetVectorizedLength(length);
 
     llamaShader.SetBuffer(_kernels.rmsNorm, "rmsnorm_In", bufferIn);
@@ -529,10 +526,7 @@ public class Llama : MonoBehaviour {
     llamaShader.SetInt("rmsnorm_veclen", vecLen);
     llamaShader.SetFloat("rmsnorm_length", length);
 
-    
-    int threadGroupsX = Mathf.CeilToInt(vecLen / 256.0f);
     llamaShader.Dispatch(_kernels.rmsNorm, 1, 1, 1);
-    //llamaShader.Dispatch(_kernels.rmsNorm, 1, 1, 1);
 
     Profiler.EndSample();
 
