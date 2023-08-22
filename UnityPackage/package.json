@@ -1,0 +1,14 @@
+{
+    "name": "com.cascadetechnologies.perropastor",
+    "displayName": "PerroPastor",
+    "version": "0.0.1",
+    "unity": "2021.3",
+    "description": "He makes the Llamas run!",
+    "keywords": [],
+    "author": {
+        "name": "alvion",
+        "email": "alvion@gmail.com",
+        "url": "http://cascadetechnologies.ai"
+    },
+    "dependencies": {}
+}

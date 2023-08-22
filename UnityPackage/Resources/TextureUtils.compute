@@ -1,0 +1,17 @@
+#pragma kernel SetTexture
+
+RWTexture2D<float> settex_Texture;
+StructuredBuffer<float> settex_StagingBuffer;
+
+[numthreads(8, 8, 1)]
+void SetTexture(uint3 id : SV_DispatchThreadID)
+{
+    uint width, height;
+    settex_Texture.GetDimensions(width, height);
+
+    if (id.x >= width || id.y >= height)
+        return;
+
+    int idx = id.y * width + id.x;
+    settex_Texture[id.xy] = settex_StagingBuffer[idx];
+}

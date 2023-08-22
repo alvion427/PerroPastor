@@ -1,0 +1,40 @@
+#pragma multi_compile QUANT_WEIGHT_32 QUANT_WEIGHT_16
+
+#include "Common.cginc"
+
+#pragma kernel SetQuantizedData
+
+StructuredBuffer<float4> setquant_input;
+RWStructuredBuffer<WEIGHT_TYPE_VEC> setquant_output;
+uint setquant_veclen;
+
+[numthreads(256, 1, 1)]
+void SetQuantizedData(uint3 id : SV_DispatchThreadID)
+{
+    uint i = id.x;
+    if (i >= setquant_veclen)
+        return;
+
+    setquant_output[i] = StoreWeights(setquant_input[i]);
+}
+
+#pragma kernel SetQuantizedDataInterleaved
+
+StructuredBuffer<float2> setquant_inputA;
+StructuredBuffer<float2> setquant_inputB;
+
+[numthreads(256, 1, 1)]
+void SetQuantizedDataInterleaved(uint3 id : SV_DispatchThreadID)
+{
+    uint i = id.x;
+    if (i >= setquant_veclen)
+        return;
+
+    float2 a = setquant_inputA[i];
+    float2 b = setquant_inputB[i];
+    float4 result = float4(a.x, b.x, a.y, b.y);
+
+    setquant_output[i] = StoreWeights(result);
+}
+
+

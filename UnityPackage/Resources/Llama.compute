@@ -1,0 +1,413 @@
+#pragma multi_compile QUANT_WEIGHT_32 QUANT_WEIGHT_16
+
+#include "Common.cginc"
+
+/// Clear
+#pragma kernel Clear
+
+RWStructuredBuffer<float> clear_dest;
+uint clear_length;
+
+[numthreads(256, 1, 1)]
+void Clear(uint3 id : SV_DispatchThreadID) {
+    if (id.x >= clear_length) return;
+    clear_dest[id.x] = 0;
+}
+
+/// Memcpy
+#pragma kernel Memcpy
+
+RWStructuredBuffer<float4> copy_dest;
+StructuredBuffer<float4> copy_source;
+uint memcpy_veclen;
+uint memcpy_source_offset;
+uint memcpy_dest_offset;
+
+[numthreads(256, 1, 1)]
+void Memcpy(uint3 id : SV_DispatchThreadID)
+{
+    // Check if index is within bounds
+    if (id.x < memcpy_veclen)
+    {
+        copy_dest[id.x + memcpy_dest_offset] = copy_source[id.x + memcpy_source_offset];
+    }
+}
+
+/// ScaleBuffer
+#pragma kernel ScaleBuffer
+
+RWStructuredBuffer<float4> scalebuffer_buffer;
+uint scalebuffer_veclen;
+float scalebuffer_scale;
+
+[numthreads(kThreadsPerGroup, 1, 1)]
+void ScaleBuffer(uint3 id : SV_DispatchThreadID) {
+    if (id.x >= scalebuffer_veclen) return;
+    
+    scalebuffer_buffer[id.x] = scalebuffer_buffer[id.x] * scalebuffer_scale;
+}
+
+
+/// Fixed to float
+#pragma kernel FixedToFloat
+
+RWStructuredBuffer<float4> fixedtofloat_dest;
+StructuredBuffer<int4> fixedtofloat_source;
+uint fixedtofloat_length;
+
+[numthreads(kThreadsPerGroup, 1, 1)]
+void FixedToFloat(uint3 id : SV_DispatchThreadID) {
+    if (id.x >= fixedtofloat_length) return;
+    fixedtofloat_dest[id.x] = fixedtofloat_source[id.x] / kFixedPointScale;
+}
+
+#pragma kernel LoadEmbedding
+
+StructuredBuffer<int> loadembedding_token;
+StructuredBuffer<WEIGHT_TYPE_VEC> loadembedding_source;
+RWStructuredBuffer<float4> loadembedding_dest;
+uint loadembedding_veclen;
+
+[numthreads(kThreadsPerGroup, 1, 1)]
+void LoadEmbedding(uint3 id : SV_DispatchThreadID) {
+    if (id.x >= loadembedding_veclen) return;
+    int token = loadembedding_token[0];
+    int sourceOffset = token * loadembedding_veclen;
+    loadembedding_dest[id.x] = LoadWeights(loadembedding_source[sourceOffset + id.x]);
+}
+
+/// MatMul
+#pragma kernel MatMul
+
+StructuredBuffer<WEIGHT_TYPE_VEC> matmul_matrixW;
+StructuredBuffer<float4> matmul_vectorX;
+RWStructuredBuffer<float> matmul_vectorOut;
+uint matmul_rows;
+uint matmul_cols_vec;
+
+[numthreads(kThreadsPerGroup, 1, 1)]
+void MatMul(uint3 id : SV_DispatchThreadID) {
+    uint row = id.x;
+    if (row >= matmul_rows) return;
+    
+    float sum = 0;
+    for (uint col = 0; col < matmul_cols_vec; col++) {
+        float4 a = LoadWeights(matmul_matrixW[id.x * matmul_cols_vec + col]);
+        float4 b = matmul_vectorX[col];
+        sum += dot(a, b);
+    }
+    matmul_vectorOut[row] = sum;
+}
+
+#pragma kernel MatMulTex
+
+Texture2D<float> matmultex_matrixW;
+//sampler2D sampler_matmultex_matrixW;
+
+StructuredBuffer<float> matmultex_vectorX;
+RWStructuredBuffer<float> matmultex_vectorOut;
+uint matmultex_rows;
+uint matmultex_cols;
+
+[numthreads(kThreadsPerGroup, 1, 1)]
+void MatMulTex(uint3 id : SV_DispatchThreadID) {
+    uint row = id.x;
+    if (row >= matmultex_rows) return;
+
+    float sum = 0;
+    for (uint col = 0; col < matmultex_cols; col++) {
+        const float matrixWValue0 = matmultex_matrixW[uint2(col, row)];
+        sum += matrixWValue0 * matmultex_vectorX[col];
+    }
+
+    matmultex_vectorOut[row] = sum;
+}
+
+/// Accumulate
+#pragma kernel Accumulate
+
+RWStructuredBuffer<float4> accumulate_A;
+StructuredBuffer<float4> accumulate_B;
+uint accumulate_veclen;
+
+[numthreads(kThreadsPerGroup, 1, 1)]
+void Accumulate(uint3 id : SV_DispatchThreadID) {
+    if (id.x >= accumulate_veclen) return;
+    accumulate_A[id.x] += accumulate_B[id.x];
+}
+
+/// RMSNorm
+#pragma kernel RMSNorm
+
+StructuredBuffer<float4> rmsnorm_In; // Input values
+StructuredBuffer<WEIGHT_TYPE_VEC> rmsnorm_Weight; // Weights
+RWStructuredBuffer<float4> rmsnorm_Out; // Output values
+uint rmsnorm_veclen; // Length of the input and output vectors
+float rmsnorm_length;
+
+
+[numthreads(1, 1, 1)]
+void RMSNorm(uint3 id : SV_DispatchThreadID) {
+    const float kEpsilon = 1e-5f;
+
+    uint j = 0;
+
+    // Calculate sum of squares
+    float ss = 0.0f;
+    for (j = 0; j < rmsnorm_veclen; j++) {
+        ss += dot(rmsnorm_In[j], rmsnorm_In[j]);
+    }
+    ss /= rmsnorm_length;
+    ss += kEpsilon;
+    ss = 1.0f / sqrt(ss);
+
+    // Normalize and scale
+    for (j = 0; j < rmsnorm_veclen; j++) {
+        float4 weights = LoadWeights(rmsnorm_Weight[j]);
+        rmsnorm_Out[j] = weights * (ss * rmsnorm_In[j]);
+    }
+}
+
+/// Rope
+#pragma kernel Rope
+
+RWStructuredBuffer<float2> rope_q; // Query vectors
+RWStructuredBuffer<float2> rope_k; // Key vectors
+//StructuredBuffer<float2> rope_freq_cis;
+// SEE COMMENT BELOW ABOUT float2 vs float4 in rope_freq_cis!!!!
+StructuredBuffer<WEIGHT_TYPE_VEC> rope_freq_cis; 
+uint rope_freq_cis_offset; // Offset into the frequency vectors
+uint rope_stride; // Half size of each head
+uint rope_length; // Total length of the vectors
+
+[numthreads(kThreadsPerGroup, 1, 1)]
+void Rope(uint3 id : SV_DispatchThreadID) {
+    uint idx = id.x;
+    if (idx >= rope_length) return;
+
+    uint i = idx % rope_stride; // Element index within head
+    
+    float q0 = rope_q[idx].x;
+    float q1 = rope_q[idx].y;
+    
+    float k0 = rope_k[idx].x;
+    float k1 = rope_k[idx].y;
+
+    // ARGGGH!!!  Why doesn't it work to read rope_freq_cis as a float2?!?!
+    // It mostly works fine, but then when we hit token 128, it starts just reading zeros
+    // from the buffer.  If I change the buffer to be float4 and then use the code below
+    // to select which element to read, it works fine.  :(
+    
+    //float2 fc = rope_freq_cis[rope_freq_cis_offset + i];
+
+    
+    uint cisIdx = rope_freq_cis_offset + i;
+    float4 fc4 = LoadWeights(rope_freq_cis[cisIdx / 2]);
+    float2 fc;
+    if(i % 2 == 0) {
+        fc = fc4.xy;
+    } else {
+        fc = fc4.zw;
+    }
+
+    // Rotate q and k by the freq_cis_real and freq_cis_imag
+    rope_q[idx].x = q0 * fc.x - q1 * fc.y;
+    rope_q[idx].y = q0 * fc.y + q1 * fc.x;
+    rope_k[idx].x = k0 * fc.x - k1 * fc.y;
+    rope_k[idx].y = k0 * fc.y + k1 * fc.x;
+}
+
+/// Softmax
+#pragma kernel Softmax
+
+// Global buffers and variables for Softmax computation
+RWStructuredBuffer<float> softmax_InOut;
+uint softmax_offset; // Offset into the input and output vectors
+uint softmax_length; // Length of the input and output vectors
+
+// The current implementation of softmax requires using temporary memory but it shouldn't!
+RWStructuredBuffer<float> softmax_temp;
+
+[numthreads(1, 1, 1)]
+void Softmax(uint3 id : SV_DispatchThreadID) {
+    uint i;
+    
+    // Find max value (for numerical stability)
+    float max_val = softmax_InOut[softmax_offset];
+    for (i = 1; i < softmax_length; i++) {
+        if (softmax_InOut[softmax_offset + i] > max_val) {
+            max_val = softmax_InOut[softmax_offset + i];
+        }
+    }
+
+    // Exp and sum
+    float sum = 0.0f;
+    for (i = 0; i < softmax_length; i++) {
+        float xExp = exp(softmax_InOut[softmax_offset + i] - max_val);
+        // We should be able to do this in-place but we write garbage in that case, so use a temporary buffer
+        softmax_temp[softmax_offset + i] = xExp;
+        sum += xExp;
+    }
+
+    // Normalize
+    for (i = 0; i < softmax_length; i++) {
+        softmax_InOut[softmax_offset + i] = softmax_temp[softmax_offset + i] / sum;
+    }
+}
+
+/// Compute attention
+#pragma kernel ComputeAttention
+
+StructuredBuffer<float> compute_attention_q; // Query vectors
+StructuredBuffer<float> compute_attention_k; // Key cache
+RWStructuredBuffer<float> compute_attention_att; // Attention scores
+
+uint compute_attention_head; // Which head we are processing
+uint compute_attention_head_size; // Size of each head
+uint compute_attention_pos; // Current position in the sequence
+uint compute_attention_dim; // Dimension of embeddings
+uint compute_attention_seq_len; // Length of the sequence
+
+float compute_attention_head_size_inv_sqrt; // 1.0 / Square root of the head size
+
+[numthreads(kThreadsPerGroup, 1, 1)]
+void ComputeAttention(uint3 id : SV_DispatchThreadID) {
+    uint t = id.x;
+    uint att_offset = compute_attention_head * compute_attention_seq_len;
+    
+    if (t > compute_attention_pos) {
+        if (t < compute_attention_seq_len) {
+            compute_attention_att[att_offset + t] = -1;
+        }
+        return;
+    }
+
+    uint headOffset = compute_attention_head * compute_attention_head_size;
+    uint k_offset = t * compute_attention_dim + headOffset;
+
+    // Compute attention score as dot product of q and k
+    float score = 0;
+    for (uint i = 0; i < compute_attention_head_size; i++)
+    {
+        float q = compute_attention_q[headOffset + i];
+        float k = compute_attention_k[k_offset + i];
+        score += q * k;
+    }
+    score *= compute_attention_head_size_inv_sqrt;
+    compute_attention_att[att_offset + t] = score;
+}
+
+/// Silu
+#pragma kernel Silu
+
+RWStructuredBuffer<float> silu_InOut;
+uint silu_length;
+
+[numthreads(kThreadsPerGroup, 1, 1)]
+void Silu(uint3 id : SV_DispatchThreadID) {
+    if (id.x >= silu_length) return;
+    float x = silu_InOut[id.x];
+    silu_InOut[id.x] = x * (1.0f / (1.0f + exp(-x)));
+}
+
+/// Elementwise Multiply
+#pragma kernel Multiply
+
+RWStructuredBuffer<float> multiply_A;
+StructuredBuffer<float> multiply_B;
+uint multiply_length;
+
+[numthreads(kThreadsPerGroup, 1, 1)]
+void Multiply(uint3 id : SV_DispatchThreadID) {
+    if (id.x >= multiply_length) return;
+    multiply_A[id.x] *= multiply_B[id.x];
+}
+
+/// WeightedSum
+#pragma kernel WeightedSum
+
+// Global buffers and variables for Weighted Sum computation
+StructuredBuffer<float> weightedsum_values; // Value vectors
+StructuredBuffer<float> weightedsum_attention; // Attention weights
+RWStructuredBuffer<int> weightedsum_out; // Output buffer to hold weighted sum
+
+uint weightedsum_offset; // Offset into value buffer
+uint weightedsum_attention_offset; // Offset into attention buffer
+uint weightedsum_head_size;
+uint weightedsum_pos;
+uint weightedsum_dim;
+
+[numthreads(kThreadsPerGroup, 1, 1)]
+void WeightedSum(uint3 id : SV_DispatchThreadID) {
+    uint t = id.x;
+    if (t > weightedsum_pos) return;
+
+    uint valuesOffset = weightedsum_offset + t * weightedsum_dim;
+
+    // accumulate the weighted value into output
+    float a = weightedsum_attention[weightedsum_attention_offset + t];
+    for (uint i = 0; i < weightedsum_head_size; i++) {
+        int fixedValue = (int)(a * weightedsum_values[valuesOffset + i] * kFixedPointScale);
+        InterlockedAdd(weightedsum_out[weightedsum_offset + i], fixedValue);
+    }
+}
+
+/// ArgMax
+#pragma kernel ArgMaxFindMax
+#pragma kernel ArgMaxWriteResult
+
+StructuredBuffer<float> argmax_logits;
+RWStructuredBuffer<int> argmax_result; 
+uint argmax_length;
+
+RWStructuredBuffer<int> argmax_max;
+
+// First find the max value in the logits using atomics and fixed point number
+[numthreads(kThreadsPerGroup, 1, 1)]
+void ArgMaxFindMax(uint3 id : SV_DispatchThreadID) {
+    uint i = id.x;
+    if (i >= argmax_length) return;
+
+    // ARG!!!!! InterlockedMax does not seem to work correctly when there is a mix of positive and negative numbers.
+    // If we have some negatives, then the max will end up being the negative number closest to zero!
+    // We use this gross HACK to just add 100.0f to each logit so that they are all above 0.  This is sadness :(.
+
+    int logitFixed = (argmax_logits[i] + 100.0f) * 256 * 256 * 256;
+    InterlockedMax(argmax_max[0], logitFixed);
+}
+
+// Then write the index of the max value in a second pass.
+// Logits that are tied are a race condition!
+[numthreads(kThreadsPerGroup, 1, 1)]
+void ArgMaxWriteResult(uint3 id : SV_DispatchThreadID) {
+    uint i = id.x;
+    if (i >= argmax_length) return;
+
+    int logitFixed = (argmax_logits[i] + 100.0f) * 256 * 256 * 256;
+    if (logitFixed == argmax_max[0]) {
+        argmax_result[0] = i;
+    }
+}
+
+/// SampleLogits
+#pragma kernel SampleLogits
+
+StructuredBuffer<float> sample_probabilities;
+RWStructuredBuffer<int> sample_result;
+uint sample_length;
+float sample_random;
+
+// YIKES!  Make this run in parallel!!!
+
+[numthreads(1, 1, 1)]
+void SampleLogits(uint3 id : SV_DispatchThreadID) {
+    sample_result[0] = sample_length - 1;
+    float cdf = 0.0f;
+    for (uint i = 0; i < sample_length; i++) {
+        cdf += sample_probabilities[i];
+        if (sample_random < cdf) {
+            sample_result[0] = i;
+            break;
+        }
+    }
+}
