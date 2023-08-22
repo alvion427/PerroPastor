@@ -12,7 +12,7 @@ public class PerroMenu
       "https://huggingface.co/karpathy/tinyllamas/resolve/main/stories15M.bin",
       Path.Combine(Application.streamingAssetsPath, "Models/stories15M.bin"));
     DownloadFile(
-      "https://github.com/karpathy/llama2.c/raw/master/tokenizer.bin",
+      "https://github.com/alvion427/PerroPastor/raw/master/Data/tokenizer2.bin",
       Path.Combine(Application.streamingAssetsPath, "Models/tokenizer.bin"));
   }
 
