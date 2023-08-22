@@ -17,6 +17,7 @@ I also intend this repo to be a good opportunity to learn how LLMs work.  Althou
 * A "Perro" menu should appear in Unity, choose "Download Sample Model" to download the model and tokenizer files to StreamingAssets/Models
 * Find PerroPastor in your Packages list in the unity Project window, copy the sample scene to your project.
 * Run the scene!
+* Check out the [RunTransformer](https://github.com/alvion427/PerroPastor/blob/master/UnityPackage/Llama.cs#L168) function for lots of comments explaining in detail what is going on.
 
 # Thank you Andrej Karpathy!!!
 This project was inspired by Andrej Karpathy's excellent [llama.c project](https://github.com/karpathy/llama2.c), and owes a huge dept to Andrej and all of his work he has done over the years to support LLM literacy.  I find it so much easier to learn how something REALLY works when it is written in a simple language with no dependencies, rather than trying to peer through all the abstractions of higher level libraries like PyTorch.  You will see that lots of the naming and overall code flow still owes a great deal to llama.c, although things have already started to diverge quite a bit, and will diverge a lot more in the next few weeks as I make things a bit more conducive to real-time game execution.
