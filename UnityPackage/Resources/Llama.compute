@@ -166,8 +166,8 @@ void RMSNorm(uint3 id : SV_DispatchThreadID) {
     // Normalize and scale
     for (j = 0; j < rmsnorm_veclen; ++j)
     {
-        float4 weights = LoadWeights(rmsnorm_Weight[i]);
-        rmsnorm_Out[i] = weights * (ss * rmsnorm_In[i]);
+        float4 weights = LoadWeights(rmsnorm_Weight[j]);
+        rmsnorm_Out[j] = weights * (ss * rmsnorm_In[j]);
     }
 }
 
