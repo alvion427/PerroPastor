@@ -369,7 +369,7 @@ public class LlamaKernels {
   public int multiply;
   public int weightedSum;
   public int sampleLogits;
-  public int findMax;
+  public int findMaxIdx;
 
   public LlamaKernels(ComputeShader shader) {
     clear = shader.FindKernel("Clear");
@@ -388,6 +388,6 @@ public class LlamaKernels {
     multiply = shader.FindKernel("Multiply");
     weightedSum = shader.FindKernel("WeightedSum");
     sampleLogits = shader.FindKernel("SampleLogits");
-    findMax = shader.FindKernel("FindMax");
+    findMaxIdx = shader.FindKernel("FindMaxIndex");
   }
 }

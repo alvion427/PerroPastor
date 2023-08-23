@@ -103,8 +103,7 @@ public class Llama : MonoBehaviour {
       }
       else {
         if (Temperature == 0) {
-          FindMax(_runState.logits, _runState.outputToken, _runState.softmaxTemp, 
-            _runState.softmaxTempB, _config.vocab_size);
+          FindMax(_runState.logits, _runState.outputToken, _config.vocab_size);
         }
         else {
           ScaleBuffer(_runState.logits, 1.0f / Temperature, _config.vocab_size);
@@ -727,47 +726,30 @@ public class Llama : MonoBehaviour {
     }
   }
 
-  // TODO: Remove me once we find a good value
-  public int FindMaxStride = 8;
-  
-  private void FindMax(ComputeBuffer sourceBuffer, ComputeBuffer resultBuffer, ComputeBuffer scratchA, 
-    ComputeBuffer scratchB, int inputLength) {
-    scratchA.SetData(Enumerable.Repeat(42, _config.vocab_size).ToArray());
-    scratchB.SetData(Enumerable.Repeat(69, _config.vocab_size).ToArray());
+  private void FindMax(ComputeBuffer sourceBuffer, ComputeBuffer resultBuffer, int inputLength) {
+
+    int vecLen = (inputLength + 15) / 16;
     
-    ComputeBuffer inputBuffer = scratchA;
-    ComputeBuffer outputBuffer = scratchB;
+    float[] checkInput = new float[inputLength];
+    sourceBuffer.GetData(checkInput);
     
-    llamaShader.SetBuffer(_kernels.findMax, "findmax_values", sourceBuffer);
-    llamaShader.SetInt("findmax_stride", FindMaxStride);
-
-    // For the first iteration, we just use indices, no input array
-    llamaShader.EnableKeyword("FINDMAX_NO_INPUT");
-
-    while (inputLength > FindMaxStride) {
-      int outputLength = (inputLength + FindMaxStride - 1) / FindMaxStride; 
-      llamaShader.SetBuffer(_kernels.findMax, "findmax_input", inputBuffer);
-      llamaShader.SetBuffer(_kernels.findMax, "findmax_output", outputBuffer);
-      llamaShader.SetInt("findmax_in_length", inputLength);
-      llamaShader.SetInt("findmax_out_length", outputLength);
-      int threadGroupsX = Mathf.CeilToInt(outputLength / 256.0f);
-      llamaShader.Dispatch(_kernels.findMax, threadGroupsX, 1, 1);
-
-      inputLength = outputLength;
-      
-      // Swap input/output buffers
-      (inputBuffer, outputBuffer) = (outputBuffer, inputBuffer);
-
-      // For further iterations, there is an input array
-      llamaShader.DisableKeyword("FINDMAX_NO_INPUT");
-    }
+    llamaShader.SetBuffer(_kernels.findMaxIdx, "findmaxidx_values", sourceBuffer);
+    llamaShader.SetBuffer(_kernels.findMaxIdx, "findmaxidx_output", resultBuffer);
+    llamaShader.SetInt("findmaxidx_veclen", vecLen);
+    llamaShader.SetBuffer(_kernels.findMaxIdx, "check_idx", _runState.softmaxTemp);
+    llamaShader.SetBuffer(_kernels.findMaxIdx, "check_values", _runState.softmaxTempB);
     
-    // Special final iteration
-    llamaShader.SetBuffer(_kernels.findMax, "findmax_input", inputBuffer);
-    llamaShader.SetBuffer(_kernels.findMax, "findmax_output", resultBuffer);
-    llamaShader.SetInt("findmax_in_length", inputLength);
-    llamaShader.SetInt("findmax_out_length", 1);
-    llamaShader.Dispatch(_kernels.findMax, 1, 1, 1);
+    int threadGroupsX = Mathf.CeilToInt(vecLen / 256.0f);
+    llamaShader.Dispatch(_kernels.findMaxIdx, threadGroupsX, 1, 1);
+
+    int[] checkIdx = new int[vecLen];
+    _runState.softmaxTemp.GetData(checkIdx);
+    
+    float[] checkValues = new float[vecLen];
+    _runState.softmaxTempB.GetData(checkValues);
+    
+    int[] resultData = new int[1];
+    resultBuffer.GetData(resultData);
   }
 
   private void SampleLogits(ComputeBuffer runStateLogits, float random) {

@@ -1,5 +1,4 @@
 #pragma multi_compile QUANT_WEIGHT_32 QUANT_WEIGHT_16
-#pragma multi_compile _ FINDMAX_NO_INPUT
 
 #include "Common.cginc"
 
@@ -377,40 +376,62 @@ void SampleLogits(uint3 id : SV_DispatchThreadID) {
 }
 
 /// FindMax
-#pragma kernel FindMax
+#pragma kernel FindMaxIndex
 
-StructuredBuffer<float> findmax_values;
-StructuredBuffer<int> findmax_input;
-RWStructuredBuffer<int> findmax_output;
+StructuredBuffer<float> findmaxidx_values;
+RWStructuredBuffer<int> findmaxidx_output;
 
-uint findmax_in_length;
-uint findmax_out_length;
-uint findmax_stride;
+uint findmaxidx_veclen;
+#define findmaxidx_stride 16
+
+RWStructuredBuffer<int> check_idx;
+RWStructuredBuffer<float> check_values;
 
 [numthreads(kThreadsPerGroup, 1, 1)]
-void FindMax(uint3 id : SV_DispatchThreadID) {
+void FindMaxIndex(uint3 id : SV_DispatchThreadID) {
     uint i = id.x;
-    if (i >= findmax_out_length) return;
-    
-    uint start = i * findmax_stride;
-    uint end = min(start + findmax_stride, findmax_in_length);
+    if (i >= findmaxidx_veclen) return;
 
-    int maxIndex = -1;
-    float maxVal = -100000;
-    for (uint j = start; j < end; j++) {
-        int index;
-        #if FINDMAX_NO_INPUT
-            // For the first iteration, we just use indices as input
-            index = j; 
-        #else
-            index = findmax_input[j];
-        #endif
-        float value = findmax_values[index]; 
-        if (value > maxVal)
+    int start = i * findmaxidx_stride;
+    int end = start + findmaxidx_stride;
+
+    // Find local max
+    int localMaxIndex = -1;
+    float localMaxValue = -1000;
+    for (int j = start; j < end; ++j)
+    {
+        float v = findmaxidx_values[j];
+        if (v > localMaxValue)
         {
-            maxIndex = index;
-            maxVal = value; 
+            localMaxValue = v;
+            localMaxIndex = j;
         }
     }
-    findmax_output[i] = maxIndex;
+    check_idx[i] = localMaxIndex;
+    check_values[i] = localMaxValue;
+
+    if (localMaxIndex == 9038)
+    {
+        //findmaxidx_output[0] = localMaxIndex;
+    }
+
+    // Find global max
+    while (true)
+    {
+        int currentMaxIdx = findmaxidx_output[0];
+        float currentMax = findmaxidx_values[currentMaxIdx];
+        if (localMaxValue > currentMax)
+        {
+            int oldMax;
+            InterlockedCompareExchange(findmaxidx_output[0], currentMaxIdx, localMaxIndex, oldMax);
+            if (oldMax == currentMax)
+            {
+                break;
+            }
+        }
+        else
+        {
+            break;
+        }
+    }
 }
