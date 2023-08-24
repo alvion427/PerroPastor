@@ -110,6 +110,8 @@ public class Llama : MonoBehaviour {
           Softmax(_runState.logits, 0, _config.vocab_size);
           SampleLogits(_runState.logits, (float)_rng.NextDouble());
         }
+        
+        bool isFinalToken = _tokensToRun == 1;
 
         AsyncGPUReadback.Request(_runState.outputToken, (request) => {
           if (_sequenceComplete) {
@@ -126,16 +128,15 @@ public class Llama : MonoBehaviour {
 
           int token = request.GetData<int>()[0];
           if (token == Tokenizer.SOS || token == Tokenizer.EOS) {
-            Debug.Log("Sequence complete");
-            _sequenceComplete = true;
-            _tokensToRun = 0;
-            string fullSequence =
-              string.Join(" ", ResultTokens.ConvertAll<string>(x => Tokenizer.Detokenize(x)));
-            OnSequenceComplete?.Invoke(fullSequence);
+            SequenceComplete();
             return;
           }
 
           ProduceToken(token);
+
+          if (isFinalToken) {
+            SequenceComplete();
+          }
         });
       }
 
@@ -143,7 +144,7 @@ public class Llama : MonoBehaviour {
       ++_pos;
 
       if (_tokensToRun == 0) {
-        _gpuStateDebugger?.TraceFinished();
+        SequenceComplete();
       }
     }
   }
@@ -156,6 +157,16 @@ public class Llama : MonoBehaviour {
     }
 
     OnNewToken?.Invoke(tokenString);
+  }
+
+  private void SequenceComplete() {
+    _gpuStateDebugger?.TraceFinished();
+    _sequenceComplete = true;
+    _tokensToRun = 0;
+    string fullSequence =
+      string.Join("", ResultTokens.ConvertAll<string>(x => Tokenizer.Detokenize(x)));
+    Debug.Log("Sequence complete: " + fullSequence);
+    OnSequenceComplete?.Invoke(fullSequence);
   }
 
   private void LoadShader() {

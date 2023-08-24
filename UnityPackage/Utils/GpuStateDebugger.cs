@@ -41,8 +41,8 @@ class GpuStateDebugger {
         }
     }
 
-    public void SaveStates() 
-    {
+    public void SaveStates() {
+        Debug.Log("Saving trace states...");
         Directory.CreateDirectory(Path);
         foreach (var state in SavedStates) {
             string file = System.IO.Path.Combine(Path, state.Key + ".bin");
@@ -52,6 +52,7 @@ class GpuStateDebugger {
             }
             writer.Close();
         }
+        Debug.Log("Done!");
     }
 
     public void ProcessState(string name, ComputeBuffer buffer, float warningTolerance = 0.001f) {
