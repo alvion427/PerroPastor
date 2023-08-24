@@ -103,7 +103,7 @@ public class Llama : MonoBehaviour {
       }
       else {
         if (Temperature == 0) {
-          FindMax(_runState.logits, _runState.outputToken, _config.vocab_size);
+          FindMaxIndex(_runState.logits, _runState.outputToken, _config.vocab_size);
         }
         else {
           ScaleBuffer(_runState.logits, 1.0f / Temperature, _config.vocab_size);
@@ -643,17 +643,38 @@ public class Llama : MonoBehaviour {
   private void Softmax(ComputeBuffer bufferInOut, int offset, int length) {
     Profiler.BeginSample("softmax");
 
-    llamaShader.SetBuffer(_kernels.softmax, "softmax_InOut", bufferInOut);
-    llamaShader.SetBuffer(_kernels.softmax, "softmax_temp", _runState.softmaxTemp);
+    ComputeBuffer maxBuffer = _runState.scalarTemp0;
+    ComputeBuffer sumBuffer = _runState.scalarTemp1;
+    
+    // First find the max value (as fixed point)
+    FindMaxValue(bufferInOut, maxBuffer, offset, length);
+
+    // Next compute exponent and sum of exponents
+    llamaShader.SetBuffer(_kernels.softmaxExp, "softmax_input", bufferInOut);
+    llamaShader.SetBuffer(_kernels.softmaxExp, "softmax_output", _runState.softmaxTemp);
+    llamaShader.SetBuffer(_kernels.softmaxExp, "softmax_max_fixed", maxBuffer);
+    llamaShader.SetBuffer(_kernels.softmaxExp, "softmax_sum_fixed", sumBuffer);
     llamaShader.SetInt("softmax_offset", offset);
     llamaShader.SetInt("softmax_length", length);
+    
+    sumBuffer.SetData(new int[] { 0 });
 
     int threadGroupsX = Mathf.CeilToInt(length / 256.0f);
-    llamaShader.Dispatch(_kernels.softmax, threadGroupsX, 1, 1);
+    llamaShader.Dispatch(_kernels.softmaxExp, threadGroupsX, 1, 1);
+    
+    // Finally, divide by sum to get softmax
+    llamaShader.SetBuffer(_kernels.softmaxDivide, "softmax_input", _runState.softmaxTemp);
+    llamaShader.SetBuffer(_kernels.softmaxDivide, "softmax_output", bufferInOut);
+    llamaShader.SetBuffer(_kernels.softmaxDivide, "softmax_sum_fixed", sumBuffer);
+    llamaShader.SetInt("softmax_offset", offset);
+    llamaShader.SetInt("softmax_length", length);
+    
+    llamaShader.Dispatch(_kernels.softmaxDivide, threadGroupsX, 1, 1);
 
     Profiler.EndSample();
 
-    if (_Debug) {
+    if (_Debug) 
+    {
       float[] tempData = new float[_runState.softmaxTemp.ElementCount<float>()];
       _runState.softmaxTemp.GetData(tempData);
 
@@ -737,30 +758,30 @@ public class Llama : MonoBehaviour {
     }
   }
 
-  private void FindMax(ComputeBuffer sourceBuffer, ComputeBuffer resultBuffer, int inputLength) {
-
-    int vecLen = (inputLength + 15) / 16;
-    
+  private void FindMaxIndex(ComputeBuffer sourceBuffer, ComputeBuffer resultBuffer, int inputLength) {
     float[] checkInput = new float[inputLength];
     sourceBuffer.GetData(checkInput);
     
     llamaShader.SetBuffer(_kernels.findMaxIdx, "findmaxidx_values", sourceBuffer);
     llamaShader.SetBuffer(_kernels.findMaxIdx, "findmaxidx_output", resultBuffer);
-    llamaShader.SetInt("findmaxidx_veclen", vecLen);
-    llamaShader.SetBuffer(_kernels.findMaxIdx, "check_idx", _runState.softmaxTemp);
-    llamaShader.SetBuffer(_kernels.findMaxIdx, "check_values", _runState.softmaxTempB);
+    llamaShader.SetInt("findmaxidx_length", inputLength);
     
-    int threadGroupsX = Mathf.CeilToInt(vecLen / 256.0f);
+    int threadGroupsX = Mathf.CeilToInt(inputLength / 256.0f);
     llamaShader.Dispatch(_kernels.findMaxIdx, threadGroupsX, 1, 1);
 
-    int[] checkIdx = new int[vecLen];
-    _runState.softmaxTemp.GetData(checkIdx);
-    
-    float[] checkValues = new float[vecLen];
-    _runState.softmaxTempB.GetData(checkValues);
-    
     int[] resultData = new int[1];
     resultBuffer.GetData(resultData);
+  }
+
+  private void FindMaxValue(ComputeBuffer sourceBuffer, ComputeBuffer resultBuffer, int offset, int inputLength) {
+    resultBuffer.SetData(new float[] { -100 * 256 * 256 * 256 });
+    llamaShader.SetBuffer(_kernels.findMaxVal, "findmaxval_input", sourceBuffer);
+    llamaShader.SetBuffer(_kernels.findMaxVal, "findmaxval_output", resultBuffer);
+    llamaShader.SetInt("findmaxval_offset", offset);
+    llamaShader.SetInt("findmaxval_length", inputLength);
+  
+    int threadGroupsX = Mathf.CeilToInt(inputLength / 256.0f);
+    llamaShader.Dispatch(_kernels.findMaxVal, threadGroupsX, 1, 1);
   }
 
   private void SampleLogits(ComputeBuffer runStateLogits, float random) {

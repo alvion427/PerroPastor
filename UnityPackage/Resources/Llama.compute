@@ -219,6 +219,7 @@ void Rope(uint3 id : SV_DispatchThreadID) {
     rope_k[idx].y = k0 * fc.y + k1 * fc.x;
 }
 
+#if 0
 /// Softmax
 #pragma kernel Softmax
 
@@ -254,6 +255,53 @@ void Softmax(uint3 id : SV_DispatchThreadID) {
         softmax_InOut[softmax_offset + i] = softmax_temp[softmax_offset + i] / sum;
     }
 }
+#endif
+
+#pragma kernel SoftmaxExp
+#pragma kernel SoftmaxDivide
+
+StructuredBuffer<float> softmax_input;
+RWStructuredBuffer<float> softmax_output;
+StructuredBuffer<int> softmax_max_fixed;
+RWStructuredBuffer<int> softmax_sum_fixed;
+uint softmax_length;
+uint softmax_offset;
+
+groupshared int softmax_groupSumFixed;
+
+[numthreads(kThreadsPerGroup, 1, 1)]
+void SoftmaxExp(uint3 id : SV_DispatchThreadID, uint3 gid : SV_GroupThreadID) {
+    uint i = id.x;
+    if (i >= softmax_length) return;
+
+    if (all(gid) == 0)
+    {
+        softmax_groupSumFixed = 0;
+    }
+
+    GroupMemoryBarrierWithGroupSync();
+
+    float maxValue = softmax_max_fixed[0] / kFixedPointScale;
+    float xExp = exp(softmax_input[softmax_offset + i] - maxValue);
+    softmax_output[softmax_offset + i] = xExp;
+
+    int xExpFixed = (int)(xExp * kFixedPointScale);
+    InterlockedAdd(softmax_groupSumFixed, xExpFixed);
+
+    GroupMemoryBarrierWithGroupSync();
+
+    InterlockedAdd(softmax_sum_fixed[0], (int)(xExp * kFixedPointScale));
+}
+
+[numthreads(kThreadsPerGroup, 1, 1)]
+void SoftmaxDivide(uint3 id : SV_DispatchThreadID, uint3 gid : SV_GroupThreadID) {
+    uint i = id.x;
+    if (i >= softmax_length) return;
+
+    float sum = softmax_sum_fixed[0] / kFixedPointScale;
+    softmax_output[softmax_offset + i] = softmax_input[softmax_offset + i] / sum;
+}
+
 
 /// Compute attention
 #pragma kernel ComputeAttention
@@ -381,49 +429,32 @@ void SampleLogits(uint3 id : SV_DispatchThreadID) {
 StructuredBuffer<float> findmaxidx_values;
 RWStructuredBuffer<int> findmaxidx_output;
 
-uint findmaxidx_veclen;
-#define findmaxidx_stride 16
-
-RWStructuredBuffer<int> check_idx;
-RWStructuredBuffer<float> check_values;
+uint findmaxidx_length;
+groupshared int findmaxidx_groupMaxIdx;
 
 [numthreads(kThreadsPerGroup, 1, 1)]
-void FindMaxIndex(uint3 id : SV_DispatchThreadID) {
+void FindMaxIndex(uint3 id : SV_DispatchThreadID, uint3 gid : SV_GroupThreadID) {
     uint i = id.x;
-    if (i >= findmaxidx_veclen) return;
+    if (i >= findmaxidx_length) return;
 
-    int start = i * findmaxidx_stride;
-    int end = start + findmaxidx_stride;
-
-    // Find local max
-    int localMaxIndex = -1;
-    float localMaxValue = -1000;
-    for (int j = start; j < end; ++j)
+    if (all(gid) == 0)
     {
-        float v = findmaxidx_values[j];
-        if (v > localMaxValue)
-        {
-            localMaxValue = v;
-            localMaxIndex = j;
-        }
-    }
-    check_idx[i] = localMaxIndex;
-    check_values[i] = localMaxValue;
-
-    if (localMaxIndex == 9038)
-    {
-        //findmaxidx_output[0] = localMaxIndex;
+        findmaxidx_groupMaxIdx = -1;
     }
 
-    // Find global max
+    GroupMemoryBarrierWithGroupSync();
+
+    float value = findmaxidx_values[i];
+    
+    // First find max in local group
     while (true)
     {
-        int currentMaxIdx = findmaxidx_output[0];
-        float currentMax = findmaxidx_values[currentMaxIdx];
-        if (localMaxValue > currentMax)
+        int currentMaxIdx = findmaxidx_groupMaxIdx;
+        float currentMax = currentMaxIdx > 0 ? findmaxidx_values[currentMaxIdx] : -1000.0f;
+        if (value > currentMax)
         {
             int oldMax;
-            InterlockedCompareExchange(findmaxidx_output[0], currentMaxIdx, localMaxIndex, oldMax);
+            InterlockedCompareExchange(findmaxidx_groupMaxIdx, currentMaxIdx, i, oldMax);
             if (oldMax == currentMax)
             {
                 break;
@@ -433,5 +464,62 @@ void FindMaxIndex(uint3 id : SV_DispatchThreadID) {
         {
             break;
         }
+    }
+
+    GroupMemoryBarrierWithGroupSync();
+
+    // Then write the group max to global memory
+    while (true)
+    {
+        int currentMaxIdx = findmaxidx_output[0];
+        float currentMax = currentMaxIdx > 0 ? findmaxidx_values[currentMaxIdx] : -1000.0f;
+        if (value > currentMax)
+        {
+            int oldMax;
+            InterlockedCompareExchange(findmaxidx_output[0], currentMaxIdx, i, oldMax);
+            if (oldMax == currentMax)
+            {
+                break;
+            }
+        }
+        else
+        {
+            break;
+        }
+    }
+}
+
+/// FindMaxValue
+#pragma kernel FindMaxValue
+
+StructuredBuffer<float> findmaxval_input;
+RWStructuredBuffer<int> findmaxval_output;
+uint findmaxval_length;
+uint findmaxval_offset;
+
+groupshared int findmaxval_groupMaxVal;
+
+[numthreads(kThreadsPerGroup, 1, 1)]
+void FindMaxValue(uint3 id : SV_DispatchThreadID, uint3 gid : SV_GroupThreadID) {
+    if (all(gid) == 0)
+    {
+        findmaxval_groupMaxVal = -1000;
+    }
+
+    GroupMemoryBarrierWithGroupSync();
+
+    uint i = id.x;
+    if (i < findmaxval_length)
+    {
+        int valueFixed = (int)(findmaxval_input[findmaxval_offset + i] * kFixedPointScale);
+        InterlockedMax(findmaxval_groupMaxVal, valueFixed);
+    }
+
+    GroupMemoryBarrierWithGroupSync();
+
+    if (all(gid) == 0)
+    {
+        int groupMax = findmaxval_groupMaxVal;
+        InterlockedMax(findmaxval_output[0], groupMax);
     }
 }

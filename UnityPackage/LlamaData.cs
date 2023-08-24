@@ -316,6 +316,9 @@ public class RunState : IDisposable {
   public ComputeBuffer softmaxTemp;
   public ComputeBuffer softmaxTempB;
 
+  public ComputeBuffer scalarTemp0;
+  public ComputeBuffer scalarTemp1;
+
   public RunState(LlamaConfig c) {
     x = new ComputeBuffer(c.dim, sizeof(float));
     xb = new ComputeBuffer(c.dim, sizeof(float));
@@ -332,6 +335,9 @@ public class RunState : IDisposable {
 
     softmaxTemp = new ComputeBuffer(c.vocab_size, sizeof(float));
     softmaxTempB = new ComputeBuffer(c.vocab_size, sizeof(float));
+    
+    scalarTemp0 = new ComputeBuffer(1, sizeof(float));
+    scalarTemp1 = new ComputeBuffer(1, sizeof(float));
   }
 
   public void Dispose() {
@@ -349,6 +355,8 @@ public class RunState : IDisposable {
     outputToken.Dispose();
     softmaxTemp.Dispose();
     softmaxTempB.Dispose();
+    scalarTemp0.Dispose();
+    scalarTemp1.Dispose();
   }
 }
 
@@ -364,12 +372,14 @@ public class LlamaKernels {
   public int rmsNorm;
   public int rope;
   public int computeAttention;
-  public int softmax;
+  public int softmaxExp;
+  public int softmaxDivide;
   public int silu;
   public int multiply;
   public int weightedSum;
   public int sampleLogits;
   public int findMaxIdx;
+  public int findMaxVal;
 
   public LlamaKernels(ComputeShader shader) {
     clear = shader.FindKernel("Clear");
@@ -383,11 +393,13 @@ public class LlamaKernels {
     rmsNorm = shader.FindKernel("RMSNorm");
     rope = shader.FindKernel("Rope");
     computeAttention = shader.FindKernel("ComputeAttention");
-    softmax = shader.FindKernel("Softmax");
+    softmaxExp = shader.FindKernel("SoftmaxExp");
+    softmaxDivide = shader.FindKernel("SoftmaxDivide");
     silu = shader.FindKernel("Silu");
     multiply = shader.FindKernel("Multiply");
     weightedSum = shader.FindKernel("WeightedSum");
     sampleLogits = shader.FindKernel("SampleLogits");
     findMaxIdx = shader.FindKernel("FindMaxIndex");
+    findMaxVal = shader.FindKernel("FindMaxValue");
   }
 }
