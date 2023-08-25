@@ -647,9 +647,12 @@ public class Llama : MonoBehaviour {
     ComputeBuffer sumBuffer = _runState.scalarTemp1;
     
     // First find the max value (as fixed point)
+    Profiler.BeginSample("softmax_findmax");
     FindMaxValue(bufferInOut, maxBuffer, offset, length);
+    Profiler.EndSample();
 
     // Next compute exponent and sum of exponents
+    Profiler.BeginSample("softmax_exp");
     llamaShader.SetBuffer(_kernels.softmaxExp, "softmax_input", bufferInOut);
     llamaShader.SetBuffer(_kernels.softmaxExp, "softmax_output", _runState.softmaxTemp);
     llamaShader.SetBuffer(_kernels.softmaxExp, "softmax_max_fixed", maxBuffer);
@@ -661,8 +664,10 @@ public class Llama : MonoBehaviour {
 
     int threadGroupsX = Mathf.CeilToInt(length / 256.0f);
     llamaShader.Dispatch(_kernels.softmaxExp, threadGroupsX, 1, 1);
+    Profiler.EndSample();
     
     // Finally, divide by sum to get softmax
+    Profiler.BeginSample("softmax_divide");
     llamaShader.SetBuffer(_kernels.softmaxDivide, "softmax_input", _runState.softmaxTemp);
     llamaShader.SetBuffer(_kernels.softmaxDivide, "softmax_output", bufferInOut);
     llamaShader.SetBuffer(_kernels.softmaxDivide, "softmax_sum_fixed", sumBuffer);
@@ -670,11 +675,11 @@ public class Llama : MonoBehaviour {
     llamaShader.SetInt("softmax_length", length);
     
     llamaShader.Dispatch(_kernels.softmaxDivide, threadGroupsX, 1, 1);
+    {Profiler.EndSample();}
 
     Profiler.EndSample();
 
-    if (_Debug) 
-    {
+    if (_Debug) {
       float[] tempData = new float[_runState.softmaxTemp.ElementCount<float>()];
       _runState.softmaxTemp.GetData(tempData);
 
