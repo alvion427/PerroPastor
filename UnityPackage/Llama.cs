@@ -142,10 +142,6 @@ public class Llama : MonoBehaviour {
 
       --_tokensToRun;
       ++_pos;
-
-      if (_tokensToRun == 0) {
-        SequenceComplete();
-      }
     }
   }
 
@@ -591,12 +587,14 @@ public class Llama : MonoBehaviour {
     llamaShader.SetBuffer(_kernels.computeAttention, "compute_attention_att", att);
 
     int headSize = _config.dim / _config.n_heads;
+    int headSizeVec = ComputeUtils.GetVectorizedLength(headSize);
+    int dimVec = ComputeUtils.GetVectorizedLength(_config.dim);
 
     // Set the variables
     llamaShader.SetInt("compute_attention_head", head);
-    llamaShader.SetInt("compute_attention_head_size", headSize);
+    llamaShader.SetInt("compute_attention_head_size_vec", headSizeVec);
     llamaShader.SetInt("compute_attention_pos", pos);
-    llamaShader.SetInt("compute_attention_dim", _config.dim);
+    llamaShader.SetInt("compute_attention_dim_vec", dimVec);
     llamaShader.SetInt("compute_attention_seq_len", _config.seq_len);
     llamaShader.SetFloat("compute_attention_head_size_inv_sqrt", 1.0f / Mathf.Sqrt(headSize));
 

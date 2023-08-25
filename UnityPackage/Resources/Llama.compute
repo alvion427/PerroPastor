@@ -306,14 +306,14 @@ void SoftmaxDivide(uint3 id : SV_DispatchThreadID, uint3 gid : SV_GroupThreadID)
 /// Compute attention
 #pragma kernel ComputeAttention
 
-StructuredBuffer<float> compute_attention_q; // Query vectors
-StructuredBuffer<float> compute_attention_k; // Key cache
+StructuredBuffer<float4> compute_attention_q; // Query vectors
+StructuredBuffer<float4> compute_attention_k; // Key cache
 RWStructuredBuffer<float> compute_attention_att; // Attention scores
 
 uint compute_attention_head; // Which head we are processing
-uint compute_attention_head_size; // Size of each head
+uint compute_attention_head_size_vec; // Size of each head
 uint compute_attention_pos; // Current position in the sequence
-uint compute_attention_dim; // Dimension of embeddings
+uint compute_attention_dim_vec; // Dimension of embeddings
 uint compute_attention_seq_len; // Length of the sequence
 
 float compute_attention_head_size_inv_sqrt; // 1.0 / Square root of the head size
@@ -330,17 +330,18 @@ void ComputeAttention(uint3 id : SV_DispatchThreadID) {
         return;
     }
 
-    uint headOffset = compute_attention_head * compute_attention_head_size;
-    uint k_offset = t * compute_attention_dim + headOffset;
+    uint headOffset = compute_attention_head * compute_attention_head_size_vec;
+    uint k_offset = t * compute_attention_dim_vec + headOffset;
 
     // Compute attention score as dot product of q and k
     float score = 0;
-    for (uint i = 0; i < compute_attention_head_size; i++)
+    for (uint i = 0; i < compute_attention_head_size_vec; i++)
     {
-        float q = compute_attention_q[headOffset + i];
-        float k = compute_attention_k[k_offset + i];
-        score += q * k;
+        float4 q = compute_attention_q[headOffset + i];
+        float4 k = compute_attention_k[k_offset + i];
+        score += dot(q, k);
     }
+    
     score *= compute_attention_head_size_inv_sqrt;
     compute_attention_att[att_offset + t] = score;
 }
