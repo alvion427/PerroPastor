@@ -730,18 +730,19 @@ public class Llama : MonoBehaviour {
     int head, int pos) {
     Profiler.BeginSample("weightedSum");
 
-    int headSize = _config.dim / _config.n_heads;
-    int offset = head * headSize;
+    int headSizeVec = ComputeUtils.GetVectorizedLength(_config.dim / _config.n_heads);
+    int offsetVec = head * headSizeVec;
     int attentionOffset = head * _config.seq_len;
+    int dimVec = ComputeUtils.GetVectorizedLength(_config.dim);
 
     llamaShader.SetBuffer(_kernels.weightedSum, "weightedsum_values", valuesBuffer);
     llamaShader.SetBuffer(_kernels.weightedSum, "weightedsum_attention", attentionBuffer);
     llamaShader.SetBuffer(_kernels.weightedSum, "weightedsum_out", resultBuffer);
-    llamaShader.SetInt("weightedsum_offset", offset);
+    llamaShader.SetInt("weightedsum_offset_vec", offsetVec);
     llamaShader.SetInt("weightedsum_attention_offset", attentionOffset);
-    llamaShader.SetInt("weightedsum_head_size", headSize);
+    llamaShader.SetInt("weightedsum_head_size_vec", headSizeVec);
     llamaShader.SetInt("weightedsum_pos", pos);
-    llamaShader.SetInt("weightedsum_dim", _config.dim);
+    llamaShader.SetInt("weightedsum_dim_vec", dimVec);
 
     int threadGroupsX = Mathf.CeilToInt((pos + 1) / 256.0f);
     llamaShader.Dispatch(_kernels.weightedSum, threadGroupsX, 1, 1);
@@ -756,7 +757,7 @@ public class Llama : MonoBehaviour {
         floatData[i] = resultData[i] / (256.0f * 256.0f * 256.0f);
       }
 
-      string debugString = string.Join(", ", new ArraySegment<float>(floatData, offset, 8));
+      string debugString = string.Join(", ", new ArraySegment<float>(floatData, offsetVec * 4, 8));
       Debug.Log(debugString);
     }
   }

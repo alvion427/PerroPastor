@@ -376,28 +376,35 @@ void Multiply(uint3 id : SV_DispatchThreadID) {
 #pragma kernel WeightedSum
 
 // Global buffers and variables for Weighted Sum computation
-StructuredBuffer<float> weightedsum_values; // Value vectors
+StructuredBuffer<float4> weightedsum_values; // Value vectors
 StructuredBuffer<float> weightedsum_attention; // Attention weights
 RWStructuredBuffer<int> weightedsum_out; // Output buffer to hold weighted sum
 
-uint weightedsum_offset; // Offset into value buffer
+uint weightedsum_offset_vec; // Offset into value buffer
 uint weightedsum_attention_offset; // Offset into attention buffer
-uint weightedsum_head_size;
+uint weightedsum_head_size_vec;
 uint weightedsum_pos;
-uint weightedsum_dim;
+uint weightedsum_dim_vec;
 
 [numthreads(kThreadsPerGroup, 1, 1)]
 void WeightedSum(uint3 id : SV_DispatchThreadID) {
     uint t = id.x;
     if (t > weightedsum_pos) return;
 
-    uint valuesOffset = weightedsum_offset + t * weightedsum_dim;
+    uint valuesOffset = weightedsum_offset_vec + t * weightedsum_dim_vec;
 
     // accumulate the weighted value into output
     float a = weightedsum_attention[weightedsum_attention_offset + t];
-    for (uint i = 0; i < weightedsum_head_size; i++) {
-        int fixedValue = (int)(a * weightedsum_values[valuesOffset + i] * kFixedPointScale);
-        InterlockedAdd(weightedsum_out[weightedsum_offset + i], fixedValue);
+    for (uint i = 0; i < weightedsum_head_size_vec; i++) {
+        float4 values = weightedsum_values[valuesOffset + i];
+        float4 weightedValues = a * values;
+        int4 fixedWeightedValues = (int4)(weightedValues * kFixedPointScale);
+
+        int outputOffset = (weightedsum_offset_vec + i) * 4;
+        InterlockedAdd(weightedsum_out[outputOffset + 0], fixedWeightedValues.x);
+        InterlockedAdd(weightedsum_out[outputOffset + 1], fixedWeightedValues.y);
+        InterlockedAdd(weightedsum_out[outputOffset + 2], fixedWeightedValues.z);
+        InterlockedAdd(weightedsum_out[outputOffset + 3], fixedWeightedValues.w);
     }
 }
 
