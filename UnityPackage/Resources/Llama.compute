@@ -1,4 +1,5 @@
 #pragma multi_compile QUANT_WEIGHT_32 QUANT_WEIGHT_16
+#pragma multi_compile QUANT_RUNTIME_32 QUANT_RUNTIME_16
 
 #include "Common.cginc"
 
@@ -17,7 +18,7 @@ void Clear(uint3 id : SV_DispatchThreadID) {
 /// Memcpy
 #pragma kernel Memcpy
 
-RWStructuredBuffer<float4> copy_dest;
+RWStructuredBuffer<RUNTIME_TYPE_VEC> copy_dest;
 StructuredBuffer<float4> copy_source;
 uint memcpy_veclen;
 uint memcpy_source_offset;
@@ -29,7 +30,9 @@ void Memcpy(uint3 id : SV_DispatchThreadID)
     // Check if index is within bounds
     if (id.x < memcpy_veclen)
     {
-        copy_dest[id.x + memcpy_dest_offset] = copy_source[id.x + memcpy_source_offset];
+        // TODO: Change the load to also use LoadRuntime() once we convert everything to float16
+        float4 v = copy_source[id.x + memcpy_source_offset];
+        copy_dest[id.x + memcpy_dest_offset] = StoreRuntime(v);
     }
 }
 
@@ -307,7 +310,8 @@ void SoftmaxDivide(uint3 id : SV_DispatchThreadID, uint3 gid : SV_GroupThreadID)
 #pragma kernel ComputeAttention
 
 StructuredBuffer<float4> compute_attention_q; // Query vectors
-StructuredBuffer<float4> compute_attention_k; // Key cache
+StructuredBuffer<RUNTIME_TYPE_VEC> compute_attention_k; // Key cache
+//StructuredBuffer<uint2> compute_attention_k; // Key cache
 RWStructuredBuffer<float> compute_attention_att; // Attention scores
 
 uint compute_attention_head; // Which head we are processing
@@ -319,14 +323,11 @@ uint compute_attention_seq_len; // Length of the sequence
 float compute_attention_head_size_inv_sqrt; // 1.0 / Square root of the head size
 
 [numthreads(kThreadsPerGroup, 1, 1)]
-void ComputeAttention(uint3 id : SV_DispatchThreadID) {
+void ComputeAttention(uint3 id : SV_DispatchThreadID, uint3 gid : SV_GroupThreadID) {
     uint t = id.x;
     uint att_offset = compute_attention_head * compute_attention_seq_len;
     
     if (t > compute_attention_pos) {
-        if (t < compute_attention_seq_len) {
-            compute_attention_att[att_offset + t] = -1;
-        }
         return;
     }
 
@@ -338,7 +339,7 @@ void ComputeAttention(uint3 id : SV_DispatchThreadID) {
     for (uint i = 0; i < compute_attention_head_size_vec; i++)
     {
         float4 q = compute_attention_q[headOffset + i];
-        float4 k = compute_attention_k[k_offset + i];
+        float4 k = LoadRuntime(compute_attention_k[k_offset + i]);
         score += dot(q, k);
     }
     
@@ -376,7 +377,7 @@ void Multiply(uint3 id : SV_DispatchThreadID) {
 #pragma kernel WeightedSum
 
 // Global buffers and variables for Weighted Sum computation
-StructuredBuffer<float4> weightedsum_values; // Value vectors
+StructuredBuffer<RUNTIME_TYPE_VEC> weightedsum_values; // Value vectors
 StructuredBuffer<float> weightedsum_attention; // Attention weights
 RWStructuredBuffer<int> weightedsum_out; // Output buffer to hold weighted sum
 
@@ -396,7 +397,7 @@ void WeightedSum(uint3 id : SV_DispatchThreadID) {
     // accumulate the weighted value into output
     float a = weightedsum_attention[weightedsum_attention_offset + t];
     for (uint i = 0; i < weightedsum_head_size_vec; i++) {
-        float4 values = weightedsum_values[valuesOffset + i];
+        float4 values = LoadRuntime(weightedsum_values[valuesOffset + i]);
         float4 weightedValues = a * values;
         int4 fixedWeightedValues = (int4)(weightedValues * kFixedPointScale);
 

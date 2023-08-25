@@ -16,6 +16,7 @@ public class Llama : MonoBehaviour {
   public int RunOnStart = 0;
 
   public QuantizationModes QuantizationMode = QuantizationModes.Float32;
+  public QuantizationModes RuntimeQuantizationMode = QuantizationModes.Float32;
   public string CheckpointPath;
   public Tokenizer Tokenizer;
   public ComputeShader llamaShader;
@@ -168,7 +169,7 @@ public class Llama : MonoBehaviour {
   private void LoadShader() {
     if (llamaShader == null)
       llamaShader = (ComputeShader)Resources.Load("Llama.compute");
-    QuantizationUtil.EnableQuantizationKeywords(llamaShader, QuantizationMode);
+    QuantizationUtil.EnableQuantizationKeywords(llamaShader, QuantizationMode, RuntimeQuantizationMode);
     _kernels = new LlamaKernels(llamaShader);
   }
 
@@ -224,6 +225,7 @@ public class Llama : MonoBehaviour {
 
       // As we process each token, we accumulate the key and value vectors into a key/value cache, which allows us
       // to reuse them for future tokens.
+      // XXX: Copy only bytes using runtime size!
       Memcpy(_persistentState.layers[l].key_cache, _runState.k, 0, pos * dim, dim);
       Memcpy(_persistentState.layers[l].value_cache, _runState.v, 0, pos * dim, dim);
 
@@ -237,6 +239,7 @@ public class Llama : MonoBehaviour {
         // To do this, we simply take the query vector for the current token (stored in runState.q) and then for
         // each previous token in the sequence we dot product runState.q with keyCache.v[pos] and store it in
         // runState.att[pos].
+        // XXX: Load keys using 16 bit!
         ComputeAttention(_runState.q, _persistentState.layers[l].key_cache, _runState.att, h, pos);
 
         // Normalize attension scores using softamx.
@@ -254,9 +257,10 @@ public class Llama : MonoBehaviour {
         //    values based on how much the current query aligned with the key associated with that value.
         // NOTE: The output vector is using fixed point to allow for atomic operations, converted to floats
         //   below.
+        // XXX: Use 16 bit value cache!!
         WeightedSum(_persistentState.layers[l].value_cache, _runState.att, _runState.xbFixed, h, pos);
       }
-
+      
       // Convert all fixed point output vectors from attention into float
       FixedToFloat(_runState.xbFixed, _runState.xb, dim);
       _gpuStateDebugger?.ProcessState($"token{_pos}_layer{l}_attention", _runState.xb);
@@ -300,7 +304,7 @@ public class Llama : MonoBehaviour {
       Accumulate(_runState.x, _runState.xb, dim);
       _gpuStateDebugger?.ProcessState($"token{_pos}_layer{l}_accumulate_ffn", _runState.x);
     }
-
+    
     // Final rmsnorm of all layer results
     RmsNorm(_runState.x, _weightsGPU.rms_final_weight, _runState.xb, dim);
     _gpuStateDebugger?.ProcessState($"token{_pos}_final_rmsnorm", _runState.xb);
@@ -578,9 +582,9 @@ public class Llama : MonoBehaviour {
     }
   }
 
-  private void ComputeAttention(ComputeBuffer q, ComputeBuffer k, ComputeBuffer att, int head, int pos) {
+  private unsafe void ComputeAttention(ComputeBuffer q, ComputeBuffer k, ComputeBuffer att, int head, int pos) {
     Profiler.BeginSample("computeAttention");
-
+    
     // Set the buffers
     llamaShader.SetBuffer(_kernels.computeAttention, "compute_attention_q", q);
     llamaShader.SetBuffer(_kernels.computeAttention, "compute_attention_k", k);
@@ -598,12 +602,9 @@ public class Llama : MonoBehaviour {
     llamaShader.SetInt("compute_attention_seq_len", _config.seq_len);
     llamaShader.SetFloat("compute_attention_head_size_inv_sqrt", 1.0f / Mathf.Sqrt(headSize));
 
-    // Dispatch the kernel
-    // note: we dispatch the entire sequence length because we want to write 0 for the extra numbers
-    // todo: get rid of this!  we shouldn't be using them anyway!
-    int threadGroupsX = Mathf.CeilToInt(_config.seq_len / 256.0f);
+    int threadGroupsX = Mathf.CeilToInt(pos + 1 / 256.0f);
     llamaShader.Dispatch(_kernels.computeAttention, threadGroupsX, 1, 1);
-
+    
     Profiler.EndSample();
 
     if (_Debug) {
@@ -612,6 +613,7 @@ public class Llama : MonoBehaviour {
       float[] qRow = new float[headSize];
       Array.Copy(qData, head * headSize, qRow, 0, headSize);
 
+      /*
       float[] kData = new float[k.ElementCount<float>()];
       k.GetData(kData);
       float[][] kRows = new float[pos + 1][];
@@ -630,6 +632,7 @@ public class Llama : MonoBehaviour {
         score *= 1.0f / Mathf.Sqrt(headSize);
         cpuAtt[t] = score;
       }
+      */
 
       float[] resultData = new float[att.ElementCount<float>()];
       att.GetData(resultData);
@@ -821,7 +824,7 @@ public class Llama : MonoBehaviour {
       using (FileStream fs = new FileStream(weightsPath, FileMode.Open, FileAccess.Read))
       using (BinaryReader br = new BinaryReader(fs)) {
         // Read the config
-        _config = new LlamaConfig(QuantizationMode) {
+        _config = new LlamaConfig(QuantizationMode, RuntimeQuantizationMode) {
           dim = br.ReadInt32(),
           hidden_dim = br.ReadInt32(),
           n_layers = br.ReadInt32(),

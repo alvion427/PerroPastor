@@ -37,7 +37,7 @@ public static class ComputeUtils {
     _computeShader.SetBuffer(_setDataQuantizedKernel, "setquant_input", stagingBuffer);
     _computeShader.SetBuffer(_setDataQuantizedKernel, "setquant_output", outputBuffer);
     _computeShader.SetInt("setquant_veclen", vecLen);
-    QuantizationUtil.EnableQuantizationKeywords(_computeShader, mode);
+    QuantizationUtil.EnableQuantizationKeywords(_computeShader, mode, QuantizationModes.Float32);
 
     int threadGroupsX = Mathf.CeilToInt(vecLen / 256.0f);
     _computeShader.Dispatch(_setDataQuantizedKernel, threadGroupsX, 1, 1);
@@ -60,7 +60,7 @@ public static class ComputeUtils {
     _computeShader.SetBuffer(_setDataQuantizedInterleavedKernel, "setquant_inputB", stagingBufferB);
     _computeShader.SetBuffer(_setDataQuantizedInterleavedKernel, "setquant_output", outputBuffer);
     _computeShader.SetInt("setquant_veclen", vecLen);
-    QuantizationUtil.EnableQuantizationKeywords(_computeShader, mode);
+    QuantizationUtil.EnableQuantizationKeywords(_computeShader, mode, QuantizationModes.Float32);
 
     int threadGroupsX = Mathf.CeilToInt(vecLen / 256.0f);
     _computeShader.Dispatch(_setDataQuantizedInterleavedKernel, threadGroupsX, 1, 1);

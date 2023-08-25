@@ -1,4 +1,5 @@
 #pragma multi_compile QUANT_WEIGHT_32 QUANT_WEIGHT_16
+#pragma multi_compile QUANT_RUNTIME_32 QUANT_RUNTIME_16
 
 #include "Common.cginc"
 
