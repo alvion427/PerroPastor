@@ -8,15 +8,16 @@
 StructuredBuffer<float4> setquant_input;
 RWStructuredBuffer<WEIGHT_TYPE_VEC> setquant_output;
 uint setquant_veclen;
+uint setquant_offset;
 
-[numthreads(256, 1, 1)]
+[numthreads(1024, 1, 1)]
 void SetQuantizedData(uint3 id : SV_DispatchThreadID)
 {
     uint i = id.x;
     if (i >= setquant_veclen)
         return;
 
-    setquant_output[i] = StoreWeights(setquant_input[i]);
+    setquant_output[i + setquant_offset] = StoreWeights(setquant_input[i + setquant_offset]);
 }
 
 #pragma kernel SetQuantizedDataInterleaved
