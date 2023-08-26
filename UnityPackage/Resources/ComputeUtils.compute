@@ -1,12 +1,32 @@
-#pragma multi_compile QUANT_WEIGHT_32 QUANT_WEIGHT_16
-#pragma multi_compile QUANT_RUNTIME_32 QUANT_RUNTIME_16
+#pragma multi_compile QUANT_SOURCE_32 QUANT_SOURCE_16
+#pragma multi_compile QUANT_DEST_32 QUANT_DEST_16
 
 #include "Common.cginc"
 
+#if QUANT_SOURCE_16
+    #define SOURCE_TYPE_VEC uint2
+    #define StoreSource StoreVec16f
+    #define LoadSource LoadVec16f
+#else /* QUANT_SOURCE_32 */
+    #define SOURCE_TYPE_VEC float4
+    #define StoreSource StoreVec32f
+    #define LoadSource LoadVec32f
+#endif
+
+#if QUANT_DEST_16
+    #define DEST_TYPE_VEC uint2
+    #define StoreDest StoreVec16f
+    #define LoadDest LoadVec16f
+#else  /* QUANT_DEST_32 */
+    #define DEST_TYPE_VEC float4
+    #define StoreDest StoreVec32f
+    #define LoadDest LoadVec32f
+#endif
+
 #pragma kernel SetQuantizedData
 
-StructuredBuffer<float4> setquant_input;
-RWStructuredBuffer<WEIGHT_TYPE_VEC> setquant_output;
+StructuredBuffer<SOURCE_TYPE_VEC> setquant_input;
+RWStructuredBuffer<DEST_TYPE_VEC> setquant_output;
 uint setquant_veclen;
 uint setquant_offset;
 
@@ -17,26 +37,31 @@ void SetQuantizedData(uint3 id : SV_DispatchThreadID)
     if (i >= setquant_veclen)
         return;
 
-    setquant_output[i + setquant_offset] = StoreWeights(setquant_input[i + setquant_offset]);
+    float4 source = LoadSource(setquant_input[i + setquant_offset]);
+    setquant_output[i + setquant_offset] = StoreDest(source);
 }
 
 #pragma kernel SetQuantizedDataInterleaved
 
-StructuredBuffer<float2> setquant_inputA;
-StructuredBuffer<float2> setquant_inputB;
+StructuredBuffer<SOURCE_TYPE_VEC> setquant_inputA;
+StructuredBuffer<SOURCE_TYPE_VEC> setquant_inputB;
 
 [numthreads(256, 1, 1)]
 void SetQuantizedDataInterleaved(uint3 id : SV_DispatchThreadID)
 {
-    uint i = id.x;
-    if (i >= setquant_veclen)
+    if (id.x >= setquant_veclen)
         return;
 
-    float2 a = setquant_inputA[i];
-    float2 b = setquant_inputB[i];
-    float4 result = float4(a.x, b.x, a.y, b.y);
+    uint i = id.x * 2;
 
-    setquant_output[i] = StoreWeights(result);
+    float4 a = LoadSource(setquant_inputA[i / 2]);
+    float4 b = LoadSource(setquant_inputB[i / 2]);
+    
+    float4 result0 = float4(a.x, b.x, a.y, b.y);
+    float4 result1 = float4(a.z, b.z, a.w, b.w);
+
+    setquant_output[i + 0] = StoreDest(result0);
+    setquant_output[i + 1] = StoreDest(result1);
 }
 
 

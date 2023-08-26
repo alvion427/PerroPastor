@@ -21,23 +21,3 @@ float4 LoadVec16f(uint2 weights)
 {
     return float4(f16tof32(weights.x & 0xFFFF), f16tof32(weights.x >> 16), f16tof32(weights.y & 0xFFFF), f16tof32(weights.y >> 16));
 }
-
-#if QUANT_WEIGHT_16
-    #define WEIGHT_TYPE_VEC uint2
-    #define StoreWeights StoreVec16f
-    #define LoadWeights LoadVec16f
-#else /* QUANT_WEIGHT_32 */
-    #define WEIGHT_TYPE_VEC float4
-    #define StoreWeights StoreVec32f
-    #define LoadWeights LoadVec32f
-#endif
-
-#if QUANT_RUNTIME_16
-    #define RUNTIME_TYPE_VEC uint2
-    #define StoreRuntime StoreVec16f
-    #define LoadRuntime LoadVec16f
-#else  /* QUANT_RUNTIME_32 */
-    #define RUNTIME_TYPE_VEC float4
-    #define StoreRuntime StoreVec32f
-    #define LoadRuntime LoadVec32f
-#endif

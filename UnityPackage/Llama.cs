@@ -169,7 +169,6 @@ public class Llama : MonoBehaviour {
   private void LoadShader() {
     if (llamaShader == null)
       llamaShader = (ComputeShader)Resources.Load("Llama.compute");
-    QuantizationUtil.EnableQuantizationKeywords(llamaShader, QuantizationMode, RuntimeQuantizationMode);
     _kernels = new LlamaKernels(llamaShader);
   }
 
@@ -317,8 +316,13 @@ public class Llama : MonoBehaviour {
   private void Initialize() {
     _isInitialized = true;
 
-    LoadWeights(CheckpointPath);
+    LoadWeightsKarpathy(CheckpointPath);
     Tokenizer.LoadTokenizer(_config.vocab_size);
+    
+    QuantizationUtil.EnableQuantizationKeywords(llamaShader, _config.source_quantization_mode, "SOURCE");
+    QuantizationUtil.EnableQuantizationKeywords(llamaShader, _config.weight_quantization_mode, "WEIGHT");
+    QuantizationUtil.EnableQuantizationKeywords(llamaShader, _config.runtime_quantization_mode, "RUNTIME");
+    
     _weightsGPU = new WeightsGPU(_config);
     _weightsGPU.LoadWeights(_config, _weights);
 
@@ -443,10 +447,6 @@ public class Llama : MonoBehaviour {
     if (_Debug) {
       int[] tokenData = new int[token.ElementCount<int>()];
       token.GetData(tokenData);
-
-      NativeArray<float> correctEmbedding = new NativeArray<float>(_config.dim, Allocator.Temp);
-      NativeArray<float>.Copy(_weights.token_embedding_table, tokenData[0] * _config.dim, correctEmbedding, 0,
-        _config.dim);
 
       float[] resultData = new float[embedding.ElementCount<float>()];
       embedding.GetData(resultData);
@@ -811,10 +811,13 @@ public class Llama : MonoBehaviour {
     }
   }
 
-  public bool LoadWeights(string weightsPath) {
+  public bool LoadWeightsKarpathy(string weightsPath) {
     if (!File.Exists(weightsPath)) {
       weightsPath = Path.Combine(Application.streamingAssetsPath, "models", weightsPath);
     }
+
+    // Karpathy's format only uses float32
+    const QuantizationModes sourceMode = QuantizationModes.Float32;
     
     float startTime = Time.realtimeSinceStartup;
     Debug.Log("Loading weights...");
@@ -824,7 +827,7 @@ public class Llama : MonoBehaviour {
       using (FileStream fs = new FileStream(weightsPath, FileMode.Open, FileAccess.Read))
       using (BinaryReader br = new BinaryReader(fs)) {
         // Read the config
-        _config = new LlamaConfig(QuantizationMode, RuntimeQuantizationMode) {
+        _config = new LlamaConfig(sourceMode, QuantizationMode, RuntimeQuantizationMode) {
           dim = br.ReadInt32(),
           hidden_dim = br.ReadInt32(),
           n_layers = br.ReadInt32(),
@@ -837,7 +840,7 @@ public class Llama : MonoBehaviour {
         _config.vocab_size = Math.Abs(_config.vocab_size);
 
         // Initialize weights
-        _weights = new Weights(_config);
+        _weights = new Weights(_config, QuantizationModes.Float32);
 
         // Read token_embedding_table
         ReadNativeArray(br, _weights.token_embedding_table);
@@ -911,7 +914,8 @@ public class Llama : MonoBehaviour {
     }
   }
 
-  private void ReadNativeArray(BinaryReader br, NativeArray<float> array) {
+  private void ReadNativeArray(BinaryReader br, NativeArray<byte> byteArray) {
+    NativeArray<float> array = byteArray.Reinterpret<float>(sizeof(byte));
     int byteCount = array.Length * sizeof(float);
     byte[] buffer = br.ReadBytes(byteCount);
 

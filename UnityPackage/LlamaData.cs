@@ -12,6 +12,10 @@ public enum QuantizationModes {
 }
 
 public static class QuantizationUtil {
+  public static int ElementSize(this QuantizationModes mode) {
+    return QuantizationSizes[mode];
+  }
+  
   public static readonly Dictionary<QuantizationModes, RenderTextureFormat> QuantizationFormats =
     new Dictionary<QuantizationModes, RenderTextureFormat>() {
       { QuantizationModes.Float32, RenderTextureFormat.RFloat },
@@ -24,46 +28,38 @@ public static class QuantizationUtil {
       { QuantizationModes.Float16, Marshal.SizeOf<half>() },
     };
 
-  public static readonly Dictionary<QuantizationModes, string> WeightQuantizationFlags =
+  private static readonly Dictionary<QuantizationModes, string> QuantizationFlags =
     new Dictionary<QuantizationModes, string>() {
-      { QuantizationModes.Float32, "QUANT_WEIGHT_32" },
-      { QuantizationModes.Float16, "QUANT_WEIGHT_16" },
+      { QuantizationModes.Float32, "QUANT_{0}_32" },
+      { QuantizationModes.Float16, "QUANT_{0}_16" },
     };
 
-  public static readonly Dictionary<QuantizationModes, string> RuntimeQuantizationFlags =
-    new Dictionary<QuantizationModes, string>() {
-      { QuantizationModes.Float32, "QUANT_RUNTIME_32" },
-      { QuantizationModes.Float16, "QUANT_RUNTIME_16" },
-    };
 
-  public static void EnableQuantizationKeywords(ComputeShader shader, QuantizationModes weightMode, 
-    QuantizationModes runtimeMode) {
-    foreach (var item in WeightQuantizationFlags) {
-      if (item.Key == weightMode) {
-        shader.EnableKeyword(item.Value);
+  public static void EnableQuantizationKeywords(ComputeShader shader, QuantizationModes mode, string prefix) {
+    foreach (var item in QuantizationFlags) {
+      string keyword = string.Format(item.Value, prefix);
+      if (item.Key == mode) {
+        shader.EnableKeyword(keyword);
       }
       else {
-        shader.DisableKeyword(item.Value);
-      }
-    }
-    
-    foreach (var item in RuntimeQuantizationFlags) {
-      if (item.Key == runtimeMode) {
-        shader.EnableKeyword(item.Value);
-      }
-      else {
-        shader.DisableKeyword(item.Value);
+        shader.DisableKeyword(keyword);
       }
     }
   }
 }
 
 public class LlamaConfig {
-  public LlamaConfig(QuantizationModes weightQuantizationMode, QuantizationModes runtimeQuantizationMode) {
+  public LlamaConfig(
+    QuantizationModes sourceQuantizationMode, 
+    QuantizationModes weightQuantizationMode, 
+    QuantizationModes runtimeQuantizationMode) {
+    
+    source_quantization_mode = sourceQuantizationMode;
     weight_quantization_mode = weightQuantizationMode;
     runtime_quantization_mode = runtimeQuantizationMode;
   }
 
+  public readonly QuantizationModes source_quantization_mode;
   public readonly QuantizationModes weight_quantization_mode;
   public readonly QuantizationModes runtime_quantization_mode;
 
@@ -77,37 +73,34 @@ public class LlamaConfig {
 
   public int head_size => dim / n_heads;
   public bool UseSharedVocab => vocab_size > 0;
-
-  public int QuantizedSize => QuantizationUtil.QuantizationSizes[weight_quantization_mode];
-  public int RuntimeQuantizedSize => QuantizationUtil.QuantizationSizes[runtime_quantization_mode];
-  
 }
 
 public class LayerWeights : IDisposable {
-  public NativeArray<float> rms_att_weight; // (dim) RMSNorm weights
-  public NativeArray<float> rms_ffn_weight; // (dim)
+  public NativeArray<byte> rms_att_weight; // (dim) RMSNorm weights
+  public NativeArray<byte> rms_ffn_weight; // (dim)
 
-  public NativeArray<float> wq; // (dim, dim)
-  public NativeArray<float> wk; // (dim, dim)
-  public NativeArray<float> wv; // (dim, dim)
-  public NativeArray<float> wo; // (dim, dim)
+  public NativeArray<byte> wq; // (dim, dim)
+  public NativeArray<byte> wk; // (dim, dim)
+  public NativeArray<byte> wv; // (dim, dim)
+  public NativeArray<byte> wo; // (dim, dim)
 
-  public NativeArray<float> w1; // (hidden_dim, dim)
-  public NativeArray<float> w2; // (dim, hidden_dim)
-  public NativeArray<float> w3; // (hidden_dim, dim)
+  public NativeArray<byte> w1; // (hidden_dim, dim)
+  public NativeArray<byte> w2; // (dim, hidden_dim)
+  public NativeArray<byte> w3; // (hidden_dim, dim)
 
-  public LayerWeights(LlamaConfig c) {
-    rms_att_weight = new NativeArray<float>(c.dim, Allocator.Persistent);
-    rms_ffn_weight = new NativeArray<float>(c.dim, Allocator.Persistent);
+  public LayerWeights(LlamaConfig c, QuantizationModes quantMode) {
+    int weightSize = quantMode.ElementSize();
+    rms_att_weight = new NativeArray<byte>(c.dim * weightSize, Allocator.Persistent);
+    rms_ffn_weight = new NativeArray<byte>(c.dim * weightSize, Allocator.Persistent);
 
-    wq = new NativeArray<float>(c.dim * c.dim, Allocator.Persistent);
-    wk = new NativeArray<float>(c.dim * c.dim, Allocator.Persistent);
-    wv = new NativeArray<float>(c.dim * c.dim, Allocator.Persistent);
-    wo = new NativeArray<float>(c.dim * c.dim, Allocator.Persistent);
+    wq = new NativeArray<byte>(c.dim * c.dim * weightSize, Allocator.Persistent);
+    wk = new NativeArray<byte>(c.dim * c.dim * weightSize, Allocator.Persistent);
+    wv = new NativeArray<byte>(c.dim * c.dim * weightSize, Allocator.Persistent);
+    wo = new NativeArray<byte>(c.dim * c.dim * weightSize, Allocator.Persistent);
 
-    w1 = new NativeArray<float>(c.hidden_dim * c.dim, Allocator.Persistent);
-    w2 = new NativeArray<float>(c.dim * c.hidden_dim, Allocator.Persistent);
-    w3 = new NativeArray<float>(c.hidden_dim * c.dim, Allocator.Persistent);
+    w1 = new NativeArray<byte>(c.hidden_dim * c.dim * weightSize, Allocator.Persistent);
+    w2 = new NativeArray<byte>(c.dim * c.hidden_dim * weightSize, Allocator.Persistent);
+    w3 = new NativeArray<byte>(c.hidden_dim * c.dim * weightSize, Allocator.Persistent);
   }
 
   public void Dispose() {
@@ -126,30 +119,35 @@ public class LayerWeights : IDisposable {
 }
 
 public class Weights : IDisposable {
-  public NativeArray<float> token_embedding_table; // (vocab_size, dim)
+  public QuantizationModes QuantizationMode { get; private set; }
+  public int WeightSize => QuantizationMode.ElementSize();
+  
+  public NativeArray<byte> token_embedding_table; // (vocab_size, dim)
 
-  public NativeArray<float> rms_final_weight; // (dim) RMSNorm weights
-  public NativeArray<float> freq_cis_real; // (seq_len, head_size/2)
-  public NativeArray<float> freq_cis_imag; // (seq_len, head_size/2)
+  public NativeArray<byte> rms_final_weight; // (dim) RMSNorm weights
+  public NativeArray<byte> freq_cis_real; // (seq_len, head_size/2)
+  public NativeArray<byte> freq_cis_imag; // (seq_len, head_size/2)
 
-  public NativeArray<float> wcls; // (vocab_size, dim)
+  public NativeArray<byte> wcls; // (vocab_size, dim)
 
   public LayerWeights[] layerWeights;
 
-  public Weights(LlamaConfig c) {
+  public Weights(LlamaConfig c, QuantizationModes quantMode) {
+    QuantizationMode = quantMode;
+    
     int headSize = c.dim / c.n_heads;
 
-    token_embedding_table = new NativeArray<float>(c.vocab_size * c.dim, Allocator.Persistent);
-    rms_final_weight = new NativeArray<float>(c.dim, Allocator.Persistent);
-    freq_cis_real = new NativeArray<float>(c.seq_len * headSize / 2, Allocator.Persistent);
-    freq_cis_imag = new NativeArray<float>(c.seq_len * headSize / 2, Allocator.Persistent);
+    token_embedding_table = new NativeArray<byte>(c.vocab_size * c.dim * WeightSize, Allocator.Persistent);
+    rms_final_weight = new NativeArray<byte>(c.dim * WeightSize, Allocator.Persistent);
+    freq_cis_real = new NativeArray<byte>(c.seq_len * headSize / 2 * WeightSize, Allocator.Persistent);
+    freq_cis_imag = new NativeArray<byte>(c.seq_len * headSize / 2 * WeightSize, Allocator.Persistent);
     if (!c.UseSharedVocab) {
-      wcls = new NativeArray<float>(c.vocab_size * c.dim, Allocator.Persistent);
+      wcls = new NativeArray<byte>(c.vocab_size * c.dim * WeightSize, Allocator.Persistent);
     }
 
     layerWeights = new LayerWeights[c.n_layers];
     for (int layer = 0; layer < c.n_layers; layer++) {
-      layerWeights[layer] = new LayerWeights(c);
+      layerWeights[layer] = new LayerWeights(c, quantMode);
     }
   }
 
@@ -204,21 +202,23 @@ public class WeightsGPU : IDisposable {
   }
 
   public void LoadWeights(LlamaConfig c, Weights weights) {
-    ComputeUtils.SetQuantizedData(c.weight_quantization_mode, token_embedding_table, weights.token_embedding_table);
-    ComputeUtils.SetQuantizedData(c.weight_quantization_mode, rms_final_weight, weights.rms_final_weight);
-    ComputeUtils.SetQuantizedDataInterleaved(c.weight_quantization_mode, freq_cis, weights.freq_cis_real,
-      weights.freq_cis_imag);
+    QuantizationModes sourceMode = weights.QuantizationMode;
+    QuantizationModes destMode = c.weight_quantization_mode;
+    ComputeUtils.SetQuantizedData(sourceMode, destMode, token_embedding_table, weights.token_embedding_table);
+    ComputeUtils.SetQuantizedData(sourceMode, destMode, rms_final_weight, weights.rms_final_weight);
+    ComputeUtils.SetQuantizedDataInterleaved(sourceMode, destMode, freq_cis, 
+      weights.freq_cis_real, weights.freq_cis_imag);
 
     if (wcls != null)
-      ComputeUtils.SetQuantizedData(c.weight_quantization_mode, wcls, weights.wcls);
+      ComputeUtils.SetQuantizedData(sourceMode, destMode, wcls, weights.wcls);
 
     for (int layer = 0; layer < layerWeights.Length; layer++) {
-      layerWeights[layer].LoadWeights(c, weights.layerWeights[layer]);
+      layerWeights[layer].LoadWeights(c, weights.layerWeights[layer], sourceMode);
     }
   }
 
   public static ComputeBuffer CreateWeightsBuffer(LlamaConfig config, int size) {
-    return ComputeUtils.CreateVectorizedBuffer(size, config.QuantizedSize);
+    return ComputeUtils.CreateVectorizedBuffer(size, config.weight_quantization_mode.ElementSize());
   }
 }
 
@@ -249,18 +249,20 @@ public class LayerWeightsGPU : IDisposable {
     w3 = WeightsGPU.CreateWeightsBuffer(c, c.hidden_dim * c.dim);
   }
 
-  public void LoadWeights(LlamaConfig c, LayerWeights weights) {
-    ComputeUtils.SetQuantizedData(c.weight_quantization_mode, rms_att_weight, weights.rms_att_weight);
-    ComputeUtils.SetQuantizedData(c.weight_quantization_mode, rms_ffn_weight, weights.rms_ffn_weight);
+  public void LoadWeights(LlamaConfig c, LayerWeights weights, QuantizationModes sourceMode) {
+    QuantizationModes destMode = c.weight_quantization_mode;
+    
+    ComputeUtils.SetQuantizedData(sourceMode, destMode, rms_att_weight, weights.rms_att_weight);
+    ComputeUtils.SetQuantizedData(sourceMode, destMode, rms_ffn_weight, weights.rms_ffn_weight);
 
-    ComputeUtils.SetQuantizedData(c.weight_quantization_mode, wq, weights.wq);
-    ComputeUtils.SetQuantizedData(c.weight_quantization_mode, wk, weights.wk);
-    ComputeUtils.SetQuantizedData(c.weight_quantization_mode, wv, weights.wv);
-    ComputeUtils.SetQuantizedData(c.weight_quantization_mode, wo, weights.wo);
+    ComputeUtils.SetQuantizedData(sourceMode, destMode, wq, weights.wq);
+    ComputeUtils.SetQuantizedData(sourceMode, destMode, wk, weights.wk);
+    ComputeUtils.SetQuantizedData(sourceMode, destMode, wv, weights.wv);
+    ComputeUtils.SetQuantizedData(sourceMode, destMode, wo, weights.wo);
 
-    ComputeUtils.SetQuantizedData(c.weight_quantization_mode, w1, weights.w1);
-    ComputeUtils.SetQuantizedData(c.weight_quantization_mode, w2, weights.w2);
-    ComputeUtils.SetQuantizedData(c.weight_quantization_mode, w3, weights.w3);
+    ComputeUtils.SetQuantizedData(sourceMode, destMode, w1, weights.w1);
+    ComputeUtils.SetQuantizedData(sourceMode, destMode, w2, weights.w2);
+    ComputeUtils.SetQuantizedData(sourceMode, destMode, w3, weights.w3);
   }
 
   public void Dispose() {
@@ -283,8 +285,9 @@ public class LayerPersistentState : IDisposable {
   public ComputeBuffer value_cache; // (seq_len, dim)
 
   public LayerPersistentState(LlamaConfig c) {
-    key_cache = ComputeUtils.CreateVectorizedBuffer(c.seq_len * c.dim, c.RuntimeQuantizedSize);
-    value_cache = ComputeUtils.CreateVectorizedBuffer(c.seq_len * c.dim, c.RuntimeQuantizedSize);
+    int runtimeSize = c.runtime_quantization_mode.ElementSize();
+    key_cache = ComputeUtils.CreateVectorizedBuffer(c.seq_len * c.dim, runtimeSize);
+    value_cache = ComputeUtils.CreateVectorizedBuffer(c.seq_len * c.dim, runtimeSize);
   }
 
   public void Dispose() {

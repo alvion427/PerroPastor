@@ -22,19 +22,21 @@ public static class ComputeUtils {
       return new ComputeBuffer(size / 4, elementSize * 4);
   }
 
-  public static void SetQuantizedData(QuantizationModes mode, ComputeBuffer outputBuffer, NativeArray<float> data) {
-    if (mode == QuantizationModes.Float32) {
+  public static void SetQuantizedData(QuantizationModes sourceMode, QuantizationModes destMode,
+    ComputeBuffer outputBuffer, NativeArray<byte> data) {
+    if (sourceMode == destMode) {
       outputBuffer.SetData(data);
       return;
     }
 
-    int vecLen = GetVectorizedLength(data.Length);
+    _loadShader(sourceMode, destMode);
 
-    _loadShader(mode);
+    int length = data.Length / sourceMode.ElementSize();
+    int vecLen = GetVectorizedLength(length);
 
     // Sigh, kind of annoying that we have to copy the data once AGAIN to a staging buffer.  Probably the best way to
     // avoid this is to make our own serialization format and allow us to directly serialize quantized models.
-    ComputeBuffer stagingBuffer = new ComputeBuffer(data.Length, sizeof(float));
+    ComputeBuffer stagingBuffer = new ComputeBuffer(length, sourceMode.ElementSize());
     stagingBuffer.SetData(data);
 
     // We only dispatch a maximum of 1024 groups with 1024 threads each loop
@@ -53,19 +55,19 @@ public static class ComputeUtils {
       _computeShader.Dispatch(_setDataQuantizedKernel, threadGroupsX, 1, 1);
     }
     
-    
     stagingBuffer.Dispose();
   }
 
-  public static void SetQuantizedDataInterleaved(QuantizationModes mode, ComputeBuffer outputBuffer, NativeArray<float> dataA, NativeArray<float> dataB) {
-    _loadShader(mode);
+  public static void SetQuantizedDataInterleaved(QuantizationModes sourceMode, QuantizationModes destMode, 
+    ComputeBuffer outputBuffer, NativeArray<byte> dataA, NativeArray<byte> dataB) {
+    _loadShader(sourceMode, destMode);
 
-    int count = dataA.Length;
-    int vecLen = count / 2;
+    int count = dataA.Length / sourceMode.ElementSize();
+    int vecLen = count / 4;
 
     // Load into staging buffers
-    ComputeBuffer stagingBufferA = new ComputeBuffer(count, sizeof(float));
-    ComputeBuffer stagingBufferB = new ComputeBuffer(count, sizeof(float));
+    ComputeBuffer stagingBufferA = new ComputeBuffer(count, sourceMode.ElementSize());
+    ComputeBuffer stagingBufferB = new ComputeBuffer(count, sourceMode.ElementSize());
     stagingBufferA.SetData(dataA);
     stagingBufferB.SetData(dataB);
     
@@ -76,17 +78,27 @@ public static class ComputeUtils {
 
     int threadGroupsX = Mathf.CeilToInt(vecLen / 256.0f);
     _computeShader.Dispatch(_setDataQuantizedInterleavedKernel, threadGroupsX, 1, 1);
+
+    float[] stagingAData = new float[count];
+    stagingBufferA.GetData(stagingAData);
+    float[] stagingBData = new float[count];
+    stagingBufferB.GetData(stagingBData);
+
+    half[] resultData = new half[count * 2];
+    outputBuffer.GetData(resultData);
+    
     stagingBufferA.Dispose();
     stagingBufferB.Dispose();
   }
 
-  private static void _loadShader(QuantizationModes mode) {
+  private static void _loadShader(QuantizationModes sourceMode, QuantizationModes destMode) {
     if (_computeShader == null) {
       _computeShader = Resources.Load<ComputeShader>("ComputeUtils");
-      QuantizationUtil.EnableQuantizationKeywords(_computeShader, mode, QuantizationModes.Float32);
       _setDataQuantizedKernel = _computeShader.FindKernel("SetQuantizedData");
       _setDataQuantizedInterleavedKernel = _computeShader.FindKernel("SetQuantizedDataInterleaved");
     }
+    QuantizationUtil.EnableQuantizationKeywords(_computeShader, sourceMode, "SOURCE");
+    QuantizationUtil.EnableQuantizationKeywords(_computeShader, destMode, "DEST");
   }
 
 }
