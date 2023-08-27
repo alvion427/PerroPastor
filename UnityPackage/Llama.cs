@@ -17,9 +17,8 @@ public class Llama : MonoBehaviour {
 
   public QuantizationModes QuantizationMode = QuantizationModes.Float32;
   public QuantizationModes RuntimeQuantizationMode = QuantizationModes.Float32;
-  public string CheckpointPath;
-  public Tokenizer Tokenizer;
-  public ComputeShader llamaShader;
+  public ModelLoaderBase ModelLoader;
+  private ComputeShader _llamaShader;
 
   public int MaxTokensPerFrame = 1;
 
@@ -44,7 +43,8 @@ public class Llama : MonoBehaviour {
   private System.Random _rng;
   private GpuStateDebugger _gpuStateDebugger;
   private LlamaKernels _kernels;
-  
+  public Tokenizer _tokenizer; 
+
   public bool _Debug = false;
 
   void Start() {
@@ -55,18 +55,26 @@ public class Llama : MonoBehaviour {
       _gpuStateDebugger = new GpuStateDebugger(GpuStateDebugger.Modes.Save, SaveTrace);
     }
 
-    if (Tokenizer == null) {
-      Tokenizer = GetComponent<Tokenizer>();
-    }
-
     _rng = new System.Random(RandomSeed == -1 ? (int)DateTime.Now.Ticks : RandomSeed);
 
     LoadShader();
-    Initialize();
 
-    if (RunOnStart > 0) {
-      RunTokens(RunOnStart);
-    }
+    if (ModelLoader == null) {
+      ModelLoader = GetComponents<ModelLoaderBase>().FirstOrDefault(comp => comp.enabled);
+    } 
+    ModelLoader.OnLoaded += (config, weights, tokenizer) => {
+      _config = config;
+      _weights = weights;
+      _tokenizer = tokenizer;
+      
+      Initialize();
+
+      if (RunOnStart > 0) {
+        RunTokens(RunOnStart);
+      }
+    };
+      
+    ModelLoader.RequestLoad(QuantizationMode, RuntimeQuantizationMode);
   }
 
   private void OnDestroy() {
@@ -81,16 +89,20 @@ public class Llama : MonoBehaviour {
     ResultTokens = new List<int>();
     
     if (Query.Length > 0) {
-      var tokenizedQuery = Tokenizer.Tokenize(Query);
+      var tokenizedQuery = _tokenizer.Tokenize(Query);
       QueryTokens = tokenizedQuery.ToList();
       tokenizedQuery.Dispose();
     }
 
     // Put start of sequence token in last token buffer.
-    _runState.outputToken.SetData(new int[] { Tokenizer.SOS });
+    _runState.outputToken.SetData(new int[] { _tokenizer.SOS });
   }
 
   void Update() {
+    if (!_isInitialized) {
+      return;
+    }
+    
     int tokensProcessedThisFrame = 0;
     while (!_sequenceComplete && _tokensToRun > 0 && tokensProcessedThisFrame < MaxTokensPerFrame) {
       ++tokensProcessedThisFrame;
@@ -128,7 +140,7 @@ public class Llama : MonoBehaviour {
           Debug.Assert(ResultTokens.Count < _config.seq_len);
 
           int token = request.GetData<int>()[0];
-          if (token == Tokenizer.SOS || token == Tokenizer.EOS) {
+          if (token == _tokenizer.SOS || token == _tokenizer.EOS) {
             SequenceComplete();
             return;
           }
@@ -148,7 +160,7 @@ public class Llama : MonoBehaviour {
 
   private void ProduceToken(int token) {
     ResultTokens.Add(token);
-    string tokenString = Tokenizer.Detokenize(token);
+    string tokenString = _tokenizer.Detokenize(token);
     if (_Debug) {
       Debug.Log($"Output token: {token} {tokenString}");
     }
@@ -160,16 +172,15 @@ public class Llama : MonoBehaviour {
     _gpuStateDebugger?.TraceFinished();
     _sequenceComplete = true;
     _tokensToRun = 0;
-    string fullSequence =
-      string.Join("", ResultTokens.ConvertAll<string>(x => Tokenizer.Detokenize(x)));
+    string fullSequence = _tokenizer.Detokenize(ResultTokens);
     Debug.Log("Sequence complete: " + fullSequence);
     OnSequenceComplete?.Invoke(fullSequence);
   }
 
   private void LoadShader() {
-    if (llamaShader == null)
-      llamaShader = (ComputeShader)Resources.Load("Llama.compute");
-    _kernels = new LlamaKernels(llamaShader);
+    if (_llamaShader == null)
+      _llamaShader = (ComputeShader)Resources.Load("Llama");
+    _kernels = new LlamaKernels(_llamaShader);
   }
 
   public void RunTransformer(int pos) {
@@ -316,14 +327,11 @@ public class Llama : MonoBehaviour {
   private void Initialize() {
     _isInitialized = true;
 
-    LoadWeightsKarpathy(CheckpointPath);
-    Tokenizer.LoadTokenizer(_config.vocab_size);
+    QuantizationUtil.EnableQuantizationKeywords(_llamaShader, _config.source_quantization_mode, "SOURCE");
+    QuantizationUtil.EnableQuantizationKeywords(_llamaShader, _config.weight_quantization_mode, "WEIGHT");
+    QuantizationUtil.EnableQuantizationKeywords(_llamaShader, _config.runtime_quantization_mode, "RUNTIME");
     
-    QuantizationUtil.EnableQuantizationKeywords(llamaShader, _config.source_quantization_mode, "SOURCE");
-    QuantizationUtil.EnableQuantizationKeywords(llamaShader, _config.weight_quantization_mode, "WEIGHT");
-    QuantizationUtil.EnableQuantizationKeywords(llamaShader, _config.runtime_quantization_mode, "RUNTIME");
-    
-    _weightsGPU = new WeightsGPU(_config);
+    _weightsGPU = new WeightsGPU(_config, _weights.HasClassifierWeights);  
     _weightsGPU.LoadWeights(_config, _weights);
 
     _runState = new RunState(_config);
@@ -346,10 +354,10 @@ public class Llama : MonoBehaviour {
     Profiler.BeginSample("ClearBuffer");
 
     int length = dest.count;
-    llamaShader.SetBuffer(_kernels.clear, "clear_dest", dest);
-    llamaShader.SetInt("clear_length", length);
+    _llamaShader.SetBuffer(_kernels.clear, "clear_dest", dest);
+    _llamaShader.SetInt("clear_length", length);
     int threadGroupsX = Mathf.CeilToInt(length / 256.0f);
-    llamaShader.Dispatch(_kernels.clear, threadGroupsX, 1, 1);
+    _llamaShader.Dispatch(_kernels.clear, threadGroupsX, 1, 1);
 
     Profiler.EndSample();
   }
@@ -363,17 +371,17 @@ public class Llama : MonoBehaviour {
     destOffset = ComputeUtils.GetVectorizedLength(destOffset);
 
     // Set the buffers
-    llamaShader.SetBuffer(_kernels.memcpy, "copy_dest", copy_dest);
-    llamaShader.SetBuffer(_kernels.memcpy, "copy_source", copy_source);
+    _llamaShader.SetBuffer(_kernels.memcpy, "copy_dest", copy_dest);
+    _llamaShader.SetBuffer(_kernels.memcpy, "copy_source", copy_source);
 
     // Set the length
-    llamaShader.SetInt("memcpy_source_offset", sourceOffset);
-    llamaShader.SetInt("memcpy_dest_offset", destOffset);
-    llamaShader.SetInt("memcpy_veclen", vecLen);
+    _llamaShader.SetInt("memcpy_source_offset", sourceOffset);
+    _llamaShader.SetInt("memcpy_dest_offset", destOffset);
+    _llamaShader.SetInt("memcpy_veclen", vecLen);
 
     // Dispatch the kernel
     int threadGroupsX = Mathf.CeilToInt(vecLen / 256.0f);
-    llamaShader.Dispatch(_kernels.memcpy, threadGroupsX, 1, 1);
+    _llamaShader.Dispatch(_kernels.memcpy, threadGroupsX, 1, 1);
 
     Profiler.EndSample();
 
@@ -391,12 +399,12 @@ public class Llama : MonoBehaviour {
 
     int vecLen = ComputeUtils.GetVectorizedLength(length);
 
-    llamaShader.SetBuffer(_kernels.scaleBuffer, "scalebuffer_buffer", buffer);
-    llamaShader.SetInt("scalebuffer_veclen", vecLen);
-    llamaShader.SetFloat("scalebuffer_scale", scale);
+    _llamaShader.SetBuffer(_kernels.scaleBuffer, "scalebuffer_buffer", buffer);
+    _llamaShader.SetInt("scalebuffer_veclen", vecLen);
+    _llamaShader.SetFloat("scalebuffer_scale", scale);
 
     int threadGroupsX = Mathf.CeilToInt(vecLen / 256.0f);
-    llamaShader.Dispatch(_kernels.scaleBuffer, threadGroupsX, 1, 1);
+    _llamaShader.Dispatch(_kernels.scaleBuffer, threadGroupsX, 1, 1);
 
     Profiler.EndSample();
 
@@ -414,15 +422,15 @@ public class Llama : MonoBehaviour {
     int vecLength = ComputeUtils.GetVectorizedLength(length);
 
     // Set the buffers
-    llamaShader.SetBuffer(_kernels.fixedToFloat, "fixedtofloat_source", fixedBuffer);
-    llamaShader.SetBuffer(_kernels.fixedToFloat, "fixedtofloat_dest", floatBuffer);
+    _llamaShader.SetBuffer(_kernels.fixedToFloat, "fixedtofloat_source", fixedBuffer);
+    _llamaShader.SetBuffer(_kernels.fixedToFloat, "fixedtofloat_dest", floatBuffer);
 
     // Set the length
-    llamaShader.SetInt("fixedtofloat_length", vecLength);
+    _llamaShader.SetInt("fixedtofloat_length", vecLength);
 
     // Dispatch the kernel
     int threadGroupsX = Mathf.CeilToInt(vecLength / 256.0f);
-    llamaShader.Dispatch(_kernels.fixedToFloat, threadGroupsX, 1, 1);
+    _llamaShader.Dispatch(_kernels.fixedToFloat, threadGroupsX, 1, 1);
 
     Profiler.EndSample();
   }
@@ -433,14 +441,14 @@ public class Llama : MonoBehaviour {
     int veclen = ComputeUtils.GetVectorizedLength(_config.dim);
 
     // Set the buffers
-    llamaShader.SetBuffer(_kernels.loadEmbedding, "loadembedding_token", token);
-    llamaShader.SetBuffer(_kernels.loadEmbedding, "loadembedding_source", _weightsGPU.token_embedding_table);
-    llamaShader.SetBuffer(_kernels.loadEmbedding, "loadembedding_dest", embedding);
-    llamaShader.SetInt("loadembedding_veclen", veclen);
+    _llamaShader.SetBuffer(_kernels.loadEmbedding, "loadembedding_token", token);
+    _llamaShader.SetBuffer(_kernels.loadEmbedding, "loadembedding_source", _weightsGPU.token_embedding_table);
+    _llamaShader.SetBuffer(_kernels.loadEmbedding, "loadembedding_dest", embedding);
+    _llamaShader.SetInt("loadembedding_veclen", veclen);
 
     // Dispatch the kernel
     int threadGroupsX = Mathf.CeilToInt(veclen / 256.0f);
-    llamaShader.Dispatch(_kernels.loadEmbedding, threadGroupsX, 1, 1);
+    _llamaShader.Dispatch(_kernels.loadEmbedding, threadGroupsX, 1, 1);
 
     Profiler.EndSample();
 
@@ -461,14 +469,14 @@ public class Llama : MonoBehaviour {
     int colsVec = ComputeUtils.GetVectorizedLength(cols);
 
     // W (d,n) @ x (n,) -> xout (d,)
-    llamaShader.SetBuffer(_kernels.matmul, "matmul_matrixW", matrixW);
-    llamaShader.SetBuffer(_kernels.matmul, "matmul_vectorX", vectorX);
-    llamaShader.SetBuffer(_kernels.matmul, "matmul_vectorOut", vectorOut);
-    llamaShader.SetInt("matmul_rows", rows);
-    llamaShader.SetInt("matmul_cols_vec", colsVec);
+    _llamaShader.SetBuffer(_kernels.matmul, "matmul_matrixW", matrixW);
+    _llamaShader.SetBuffer(_kernels.matmul, "matmul_vectorX", vectorX);
+    _llamaShader.SetBuffer(_kernels.matmul, "matmul_vectorOut", vectorOut);
+    _llamaShader.SetInt("matmul_rows", rows);
+    _llamaShader.SetInt("matmul_cols_vec", colsVec);
 
     int threadGroupsX = Mathf.CeilToInt(rows / 256.0f);
-    llamaShader.Dispatch(_kernels.matmul, threadGroupsX, 1, 1);
+    _llamaShader.Dispatch(_kernels.matmul, threadGroupsX, 1, 1);
     Profiler.EndSample();
 
     if (_Debug) {
@@ -485,15 +493,15 @@ public class Llama : MonoBehaviour {
     int kernel = _kernels.matmulTex;
 
     // W (rows,cols) @ x (rows,) -> xout (d,)
-    llamaShader.SetTexture(kernel, "matmultex_matrixW", matrixW);
-    llamaShader.SetTexture(kernel, "sampler_matmultex_matrixW", matrixW);
-    llamaShader.SetBuffer(kernel, "matmultex_vectorX", vectorX);
-    llamaShader.SetBuffer(kernel, "matmultex_vectorOut", vectorOut);
-    llamaShader.SetInt("matmultex_rows", rows);
-    llamaShader.SetInt("matmultex_cols", cols);
+    _llamaShader.SetTexture(kernel, "matmultex_matrixW", matrixW);
+    _llamaShader.SetTexture(kernel, "sampler_matmultex_matrixW", matrixW);
+    _llamaShader.SetBuffer(kernel, "matmultex_vectorX", vectorX);
+    _llamaShader.SetBuffer(kernel, "matmultex_vectorOut", vectorOut);
+    _llamaShader.SetInt("matmultex_rows", rows);
+    _llamaShader.SetInt("matmultex_cols", cols);
 
     int threadGroupsX = Mathf.CeilToInt(rows / 256.0f);
-    llamaShader.Dispatch(kernel, threadGroupsX, 1, 1);
+    _llamaShader.Dispatch(kernel, threadGroupsX, 1, 1);
     Profiler.EndSample();
 
     if (_Debug) {
@@ -508,12 +516,12 @@ public class Llama : MonoBehaviour {
     Profiler.BeginSample("accumulate");
     int vecLen = ComputeUtils.GetVectorizedLength(length);
 
-    llamaShader.SetBuffer(_kernels.accumulate, "accumulate_A", bufferA);
-    llamaShader.SetBuffer(_kernels.accumulate, "accumulate_B", bufferB);
-    llamaShader.SetInt("accumulate_veclen", vecLen);
+    _llamaShader.SetBuffer(_kernels.accumulate, "accumulate_A", bufferA);
+    _llamaShader.SetBuffer(_kernels.accumulate, "accumulate_B", bufferB);
+    _llamaShader.SetInt("accumulate_veclen", vecLen);
 
     int threadGroupsX = Mathf.CeilToInt(vecLen / 256.0f);
-    llamaShader.Dispatch(_kernels.accumulate, threadGroupsX, 1, 1);
+    _llamaShader.Dispatch(_kernels.accumulate, threadGroupsX, 1, 1);
 
     Profiler.EndSample();
 
@@ -530,13 +538,13 @@ public class Llama : MonoBehaviour {
 
     int vecLen = ComputeUtils.GetVectorizedLength(length);
 
-    llamaShader.SetBuffer(_kernels.rmsNorm, "rmsnorm_In", bufferIn);
-    llamaShader.SetBuffer(_kernels.rmsNorm, "rmsnorm_Weight", bufferWeight);
-    llamaShader.SetBuffer(_kernels.rmsNorm, "rmsnorm_Out", resultBuffer);
-    llamaShader.SetInt("rmsnorm_veclen", vecLen);
-    llamaShader.SetFloat("rmsnorm_length", length);
+    _llamaShader.SetBuffer(_kernels.rmsNorm, "rmsnorm_In", bufferIn);
+    _llamaShader.SetBuffer(_kernels.rmsNorm, "rmsnorm_Weight", bufferWeight);
+    _llamaShader.SetBuffer(_kernels.rmsNorm, "rmsnorm_Out", resultBuffer);
+    _llamaShader.SetInt("rmsnorm_veclen", vecLen);
+    _llamaShader.SetFloat("rmsnorm_length", length);
 
-    llamaShader.Dispatch(_kernels.rmsNorm, 1, 1, 1);
+    _llamaShader.Dispatch(_kernels.rmsNorm, 1, 1, 1);
 
     Profiler.EndSample();
 
@@ -554,14 +562,14 @@ public class Llama : MonoBehaviour {
     int headSize = _config.dim / _config.n_heads;
     int vecLen = _config.dim / 2;
 
-    llamaShader.SetBuffer(_kernels.rope, "rope_q", q);
-    llamaShader.SetBuffer(_kernels.rope, "rope_k", k);
-    llamaShader.SetInt("rope_head_size", headSize);
-    llamaShader.SetInt("rope_pos", pos);
-    llamaShader.SetInt("rope_length", vecLen);
+    _llamaShader.SetBuffer(_kernels.rope, "rope_q", q);
+    _llamaShader.SetBuffer(_kernels.rope, "rope_k", k);
+    _llamaShader.SetInt("rope_head_size", headSize);
+    _llamaShader.SetInt("rope_pos", pos);
+    _llamaShader.SetInt("rope_length", vecLen);
 
     int threadGroupsX = Mathf.CeilToInt(vecLen / 256.0f);
-    llamaShader.Dispatch(_kernels.rope, threadGroupsX, 1, 1);
+    _llamaShader.Dispatch(_kernels.rope, threadGroupsX, 1, 1);
 
     Profiler.EndSample();
 
@@ -582,24 +590,24 @@ public class Llama : MonoBehaviour {
     Profiler.BeginSample("computeAttention");
     
     // Set the buffers
-    llamaShader.SetBuffer(_kernels.computeAttention, "compute_attention_q", q);
-    llamaShader.SetBuffer(_kernels.computeAttention, "compute_attention_k", k);
-    llamaShader.SetBuffer(_kernels.computeAttention, "compute_attention_att", att);
+    _llamaShader.SetBuffer(_kernels.computeAttention, "compute_attention_q", q);
+    _llamaShader.SetBuffer(_kernels.computeAttention, "compute_attention_k", k);
+    _llamaShader.SetBuffer(_kernels.computeAttention, "compute_attention_att", att);
 
     int headSize = _config.dim / _config.n_heads;
     int headSizeVec = ComputeUtils.GetVectorizedLength(headSize);
     int dimVec = ComputeUtils.GetVectorizedLength(_config.dim);
 
     // Set the variables
-    llamaShader.SetInt("compute_attention_head", head);
-    llamaShader.SetInt("compute_attention_head_size_vec", headSizeVec);
-    llamaShader.SetInt("compute_attention_pos", pos);
-    llamaShader.SetInt("compute_attention_dim_vec", dimVec);
-    llamaShader.SetInt("compute_attention_seq_len", _config.seq_len);
-    llamaShader.SetFloat("compute_attention_head_size_inv_sqrt", 1.0f / Mathf.Sqrt(headSize));
+    _llamaShader.SetInt("compute_attention_head", head);
+    _llamaShader.SetInt("compute_attention_head_size_vec", headSizeVec);
+    _llamaShader.SetInt("compute_attention_pos", pos);
+    _llamaShader.SetInt("compute_attention_dim_vec", dimVec);
+    _llamaShader.SetInt("compute_attention_seq_len", _config.seq_len);
+    _llamaShader.SetFloat("compute_attention_head_size_inv_sqrt", 1.0f / Mathf.Sqrt(headSize));
 
     int threadGroupsX = Mathf.CeilToInt(pos + 1 / 256.0f);
-    llamaShader.Dispatch(_kernels.computeAttention, threadGroupsX, 1, 1);
+    _llamaShader.Dispatch(_kernels.computeAttention, threadGroupsX, 1, 1);
     
     Profiler.EndSample();
 
@@ -650,28 +658,28 @@ public class Llama : MonoBehaviour {
 
     // Next compute exponent and sum of exponents
     Profiler.BeginSample("softmax_exp");
-    llamaShader.SetBuffer(_kernels.softmaxExp, "softmax_input", bufferInOut);
-    llamaShader.SetBuffer(_kernels.softmaxExp, "softmax_output", _runState.softmaxTemp);
-    llamaShader.SetBuffer(_kernels.softmaxExp, "softmax_max_fixed", maxBuffer);
-    llamaShader.SetBuffer(_kernels.softmaxExp, "softmax_sum_fixed", sumBuffer);
-    llamaShader.SetInt("softmax_offset", offset);
-    llamaShader.SetInt("softmax_length", length);
+    _llamaShader.SetBuffer(_kernels.softmaxExp, "softmax_input", bufferInOut);
+    _llamaShader.SetBuffer(_kernels.softmaxExp, "softmax_output", _runState.softmaxTemp);
+    _llamaShader.SetBuffer(_kernels.softmaxExp, "softmax_max_fixed", maxBuffer);
+    _llamaShader.SetBuffer(_kernels.softmaxExp, "softmax_sum_fixed", sumBuffer);
+    _llamaShader.SetInt("softmax_offset", offset);
+    _llamaShader.SetInt("softmax_length", length);
     
     sumBuffer.SetData(new int[] { 0 });
 
     int threadGroupsX = Mathf.CeilToInt(length / 256.0f);
-    llamaShader.Dispatch(_kernels.softmaxExp, threadGroupsX, 1, 1);
+    _llamaShader.Dispatch(_kernels.softmaxExp, threadGroupsX, 1, 1);
     Profiler.EndSample();
     
     // Finally, divide by sum to get softmax
     Profiler.BeginSample("softmax_divide");
-    llamaShader.SetBuffer(_kernels.softmaxDivide, "softmax_input", _runState.softmaxTemp);
-    llamaShader.SetBuffer(_kernels.softmaxDivide, "softmax_output", bufferInOut);
-    llamaShader.SetBuffer(_kernels.softmaxDivide, "softmax_sum_fixed", sumBuffer);
-    llamaShader.SetInt("softmax_offset", offset);
-    llamaShader.SetInt("softmax_length", length);
+    _llamaShader.SetBuffer(_kernels.softmaxDivide, "softmax_input", _runState.softmaxTemp);
+    _llamaShader.SetBuffer(_kernels.softmaxDivide, "softmax_output", bufferInOut);
+    _llamaShader.SetBuffer(_kernels.softmaxDivide, "softmax_sum_fixed", sumBuffer);
+    _llamaShader.SetInt("softmax_offset", offset);
+    _llamaShader.SetInt("softmax_length", length);
     
-    llamaShader.Dispatch(_kernels.softmaxDivide, threadGroupsX, 1, 1);
+    _llamaShader.Dispatch(_kernels.softmaxDivide, threadGroupsX, 1, 1);
     {Profiler.EndSample();}
 
     Profiler.EndSample();
@@ -689,11 +697,11 @@ public class Llama : MonoBehaviour {
 
   private void Silu(ComputeBuffer bufferInOut, int length) {
     Profiler.BeginSample("silu");
-    llamaShader.SetBuffer(_kernels.silu, "silu_InOut", bufferInOut);
-    llamaShader.SetInt("silu_length", length);
+    _llamaShader.SetBuffer(_kernels.silu, "silu_InOut", bufferInOut);
+    _llamaShader.SetInt("silu_length", length);
 
     int threadGroupsX = Mathf.CeilToInt(length / 256.0f);
-    llamaShader.Dispatch(_kernels.silu, threadGroupsX, 1, 1);
+    _llamaShader.Dispatch(_kernels.silu, threadGroupsX, 1, 1);
 
     Profiler.EndSample();
 
@@ -708,12 +716,12 @@ public class Llama : MonoBehaviour {
   private void Multiply(ComputeBuffer bufferA, ComputeBuffer bufferB, ComputeBuffer resultBuffer, int length) {
     Profiler.BeginSample("multiply");
 
-    llamaShader.SetBuffer(_kernels.multiply, "multiply_A", bufferA);
-    llamaShader.SetBuffer(_kernels.multiply, "multiply_B", bufferB);
-    llamaShader.SetInt("multiply_length", length);
+    _llamaShader.SetBuffer(_kernels.multiply, "multiply_A", bufferA);
+    _llamaShader.SetBuffer(_kernels.multiply, "multiply_B", bufferB);
+    _llamaShader.SetInt("multiply_length", length);
 
     int threadGroupsX = Mathf.CeilToInt(length / 256.0f);
-    llamaShader.Dispatch(_kernels.multiply, threadGroupsX, 1, 1);
+    _llamaShader.Dispatch(_kernels.multiply, threadGroupsX, 1, 1);
 
     Profiler.EndSample();
 
@@ -734,17 +742,17 @@ public class Llama : MonoBehaviour {
     int attentionOffset = head * _config.seq_len;
     int dimVec = ComputeUtils.GetVectorizedLength(_config.dim);
 
-    llamaShader.SetBuffer(_kernels.weightedSum, "weightedsum_values", valuesBuffer);
-    llamaShader.SetBuffer(_kernels.weightedSum, "weightedsum_attention", attentionBuffer);
-    llamaShader.SetBuffer(_kernels.weightedSum, "weightedsum_out", resultBuffer);
-    llamaShader.SetInt("weightedsum_offset_vec", offsetVec);
-    llamaShader.SetInt("weightedsum_attention_offset", attentionOffset);
-    llamaShader.SetInt("weightedsum_head_size_vec", headSizeVec);
-    llamaShader.SetInt("weightedsum_pos", pos);
-    llamaShader.SetInt("weightedsum_dim_vec", dimVec);
+    _llamaShader.SetBuffer(_kernels.weightedSum, "weightedsum_values", valuesBuffer);
+    _llamaShader.SetBuffer(_kernels.weightedSum, "weightedsum_attention", attentionBuffer);
+    _llamaShader.SetBuffer(_kernels.weightedSum, "weightedsum_out", resultBuffer);
+    _llamaShader.SetInt("weightedsum_offset_vec", offsetVec);
+    _llamaShader.SetInt("weightedsum_attention_offset", attentionOffset);
+    _llamaShader.SetInt("weightedsum_head_size_vec", headSizeVec);
+    _llamaShader.SetInt("weightedsum_pos", pos);
+    _llamaShader.SetInt("weightedsum_dim_vec", dimVec);
 
     int threadGroupsX = Mathf.CeilToInt((pos + 1) / 256.0f);
-    llamaShader.Dispatch(_kernels.weightedSum, threadGroupsX, 1, 1);
+    _llamaShader.Dispatch(_kernels.weightedSum, threadGroupsX, 1, 1);
 
     Profiler.EndSample();
 
@@ -765,12 +773,12 @@ public class Llama : MonoBehaviour {
     float[] checkInput = new float[inputLength];
     sourceBuffer.GetData(checkInput);
     
-    llamaShader.SetBuffer(_kernels.findMaxIdx, "findmaxidx_values", sourceBuffer);
-    llamaShader.SetBuffer(_kernels.findMaxIdx, "findmaxidx_output", resultBuffer);
-    llamaShader.SetInt("findmaxidx_length", inputLength);
+    _llamaShader.SetBuffer(_kernels.findMaxIdx, "findmaxidx_values", sourceBuffer);
+    _llamaShader.SetBuffer(_kernels.findMaxIdx, "findmaxidx_output", resultBuffer);
+    _llamaShader.SetInt("findmaxidx_length", inputLength);
     
     int threadGroupsX = Mathf.CeilToInt(inputLength / 256.0f);
-    llamaShader.Dispatch(_kernels.findMaxIdx, threadGroupsX, 1, 1);
+    _llamaShader.Dispatch(_kernels.findMaxIdx, threadGroupsX, 1, 1);
 
     int[] resultData = new int[1];
     resultBuffer.GetData(resultData);
@@ -778,24 +786,24 @@ public class Llama : MonoBehaviour {
 
   private void FindMaxValue(ComputeBuffer sourceBuffer, ComputeBuffer resultBuffer, int offset, int inputLength) {
     resultBuffer.SetData(new float[] { -100 * 256 * 256 * 256 });
-    llamaShader.SetBuffer(_kernels.findMaxVal, "findmaxval_input", sourceBuffer);
-    llamaShader.SetBuffer(_kernels.findMaxVal, "findmaxval_output", resultBuffer);
-    llamaShader.SetInt("findmaxval_offset", offset);
-    llamaShader.SetInt("findmaxval_length", inputLength);
+    _llamaShader.SetBuffer(_kernels.findMaxVal, "findmaxval_input", sourceBuffer);
+    _llamaShader.SetBuffer(_kernels.findMaxVal, "findmaxval_output", resultBuffer);
+    _llamaShader.SetInt("findmaxval_offset", offset);
+    _llamaShader.SetInt("findmaxval_length", inputLength);
   
     int threadGroupsX = Mathf.CeilToInt(inputLength / 256.0f);
-    llamaShader.Dispatch(_kernels.findMaxVal, threadGroupsX, 1, 1);
+    _llamaShader.Dispatch(_kernels.findMaxVal, threadGroupsX, 1, 1);
   }
 
   private void SampleLogits(ComputeBuffer runStateLogits, float random) {
     Profiler.BeginSample("SampleLogits");
 
-    llamaShader.SetBuffer(_kernels.sampleLogits, "sample_probabilities", runStateLogits);
-    llamaShader.SetBuffer(_kernels.sampleLogits, "sample_result", _runState.outputToken);
-    llamaShader.SetInt("sample_length", _config.vocab_size);
-    llamaShader.SetFloat("sample_random", random);
+    _llamaShader.SetBuffer(_kernels.sampleLogits, "sample_probabilities", runStateLogits);
+    _llamaShader.SetBuffer(_kernels.sampleLogits, "sample_result", _runState.outputToken);
+    _llamaShader.SetInt("sample_length", _config.vocab_size);
+    _llamaShader.SetFloat("sample_random", random);
 
-    llamaShader.Dispatch(_kernels.sampleLogits, 1, 1, 1);
+    _llamaShader.Dispatch(_kernels.sampleLogits, 1, 1, 1);
 
     Profiler.EndSample();
 
@@ -804,124 +812,6 @@ public class Llama : MonoBehaviour {
       _runState.outputToken.GetData(resultData);
       int resultToken = resultData[0];
       Debug.Log($"Resulting token: {resultToken}");
-    }
-  }
-
-  public bool LoadWeightsKarpathy(string weightsPath) {
-    if (!File.Exists(weightsPath)) {
-      weightsPath = Path.Combine(Application.streamingAssetsPath, "models", weightsPath);
-    }
-
-    // Karpathy's format only uses float32
-    const QuantizationModes sourceMode = QuantizationModes.Float32;
-    
-    float startTime = Time.realtimeSinceStartup;
-    Debug.Log("Loading weights...");
-    try {
-      Profiler.BeginSample("LoadWeights");
-
-      using (FileStream fs = new FileStream(weightsPath, FileMode.Open, FileAccess.Read))
-      using (BinaryReader br = new BinaryReader(fs)) {
-        // Read the config
-        _config = new LlamaConfig(sourceMode, QuantizationMode, RuntimeQuantizationMode) {
-          dim = br.ReadInt32(),
-          hidden_dim = br.ReadInt32(),
-          n_layers = br.ReadInt32(),
-          n_heads = br.ReadInt32(),
-          n_kv_heads = br.ReadInt32(),
-          vocab_size = br.ReadInt32(),
-          seq_len = br.ReadInt32()
-        };
-
-        _config.vocab_size = Math.Abs(_config.vocab_size);
-
-        // Initialize weights
-        _weights = new Weights(_config, QuantizationModes.Float32);
-
-        // Read token_embedding_table
-        ReadNativeArray(br, _weights.token_embedding_table);
-
-        // Read rms_att_weight for all layers
-        for (int layer = 0; layer < _config.n_layers; layer++) {
-          ReadNativeArray(br, _weights.layerWeights[layer].rms_att_weight);
-        }
-
-        // Read wq for all layers
-        for (int layer = 0; layer < _config.n_layers; layer++) {
-          ReadNativeArray(br, _weights.layerWeights[layer].wq);
-        }
-
-        // Read wk for all layers
-        for (int layer = 0; layer < _config.n_layers; layer++) {
-          ReadNativeArray(br, _weights.layerWeights[layer].wk);
-        }
-
-        // Read wv for all layers
-        for (int layer = 0; layer < _config.n_layers; layer++) {
-          ReadNativeArray(br, _weights.layerWeights[layer].wv);
-        }
-
-        // Read wo for all layers
-        for (int layer = 0; layer < _config.n_layers; layer++) {
-          ReadNativeArray(br, _weights.layerWeights[layer].wo);
-        }
-
-        // Read rms_ffn_weight for all layers
-        for (int layer = 0; layer < _config.n_layers; layer++) {
-          ReadNativeArray(br, _weights.layerWeights[layer].rms_ffn_weight);
-        }
-
-        // Read w1 for all layers
-        for (int layer = 0; layer < _config.n_layers; layer++) {
-          ReadNativeArray(br, _weights.layerWeights[layer].w1);
-        }
-
-        // Read w2 for all layers
-        for (int layer = 0; layer < _config.n_layers; layer++) {
-          ReadNativeArray(br, _weights.layerWeights[layer].w2);
-        }
-
-        // Read w3 for all layers
-        for (int layer = 0; layer < _config.n_layers; layer++) {
-          ReadNativeArray(br, _weights.layerWeights[layer].w3);
-        }
-
-        // Read remaining weights
-        ReadNativeArray(br, _weights.rms_final_weight);
-
-        // Skip over weights formerly associated with freq_cis_real and freq_cis_imag
-        int freqWeightsSize = _config.seq_len * _config.head_size * sizeof(float);
-        br.BaseStream.Position += freqWeightsSize; 
-
-        // Read wcls
-        if (!_config.UseSharedVocab) {
-          ReadNativeArray(br, _weights.wcls);
-        }
-      }
-
-      Debug.Log("Weights loaded successfully in " + (Time.realtimeSinceStartup - startTime) + "s");
-
-      return true; // Successfully loaded
-    }
-    catch (Exception e) {
-      Debug.LogError($"Failed to load weights from {weightsPath}: {e}");
-      return false; // Failed to load
-    }
-    finally {
-      Profiler.EndSample();
-    }
-  }
-
-  private void ReadNativeArray(BinaryReader br, NativeArray<byte> byteArray) {
-    NativeArray<float> array = byteArray.Reinterpret<float>(sizeof(byte));
-    int byteCount = array.Length * sizeof(float);
-    byte[] buffer = br.ReadBytes(byteCount);
-
-    // Get a pointer to the NativeArray's data
-    unsafe {
-      fixed (byte* pBuffer = &buffer[0]) {
-        UnsafeUtility.MemCpy(NativeArrayUnsafeUtility.GetUnsafePtr(array), pBuffer, byteCount);
-      }
     }
   }
 
@@ -938,13 +828,13 @@ public class Llama : MonoBehaviour {
 
     for (int i = 0; i < 10; i++) {
       Tuple<int, float> token = sortedLogits[i];
-      string tokenString = Tokenizer.Detokenize(token.Item1);
+      string tokenString = _tokenizer.Detokenize(token.Item1);
       Debug.Log($"Top {i}: {tokenString} {token.Item2}");
     }
 
     int[] outputToken = new int[1];
     _runState.outputToken.GetData(outputToken);
-    string outputTokenString = Tokenizer.Detokenize(outputToken[0]);
+    string outputTokenString = _tokenizer.Detokenize(outputToken[0]);
 
     string debugString = string.Join(", ", new ArraySegment<float>(logits, 0, 256));
     Debug.Log($"Got output token {outputTokenString} with logits {debugString}");

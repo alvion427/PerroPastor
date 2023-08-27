@@ -48,12 +48,13 @@ public static class QuantizationUtil {
   }
 }
 
+[Serializable]
 public class LlamaConfig {
   public LlamaConfig(
     QuantizationModes sourceQuantizationMode, 
     QuantizationModes weightQuantizationMode, 
     QuantizationModes runtimeQuantizationMode) {
-    
+
     source_quantization_mode = sourceQuantizationMode;
     weight_quantization_mode = weightQuantizationMode;
     runtime_quantization_mode = runtimeQuantizationMode;
@@ -72,7 +73,6 @@ public class LlamaConfig {
   public int seq_len; // Max sequence length
 
   public int head_size => dim / n_heads;
-  public bool UseSharedVocab => vocab_size > 0;
 }
 
 public class LayerWeights : IDisposable {
@@ -121,6 +121,7 @@ public class LayerWeights : IDisposable {
 public class Weights : IDisposable {
   public QuantizationModes QuantizationMode { get; private set; }
   public int WeightSize => QuantizationMode.ElementSize();
+  public bool HasClassifierWeights { get => wcls.IsCreated; }
   
   public NativeArray<byte> token_embedding_table; // (vocab_size, dim)
   public NativeArray<byte> rms_final_weight; // (dim) RMSNorm weights
@@ -128,14 +129,14 @@ public class Weights : IDisposable {
 
   public LayerWeights[] layerWeights;
 
-  public Weights(LlamaConfig c, QuantizationModes quantMode) {
+  public Weights(LlamaConfig c, QuantizationModes quantMode, bool hasClassifierWeights) {
     QuantizationMode = quantMode;
     
     int headSize = c.dim / c.n_heads;
 
     token_embedding_table = new NativeArray<byte>(c.vocab_size * c.dim * WeightSize, Allocator.Persistent);
     rms_final_weight = new NativeArray<byte>(c.dim * WeightSize, Allocator.Persistent);
-    if (!c.UseSharedVocab) {
+    if (hasClassifierWeights) {
       wcls = new NativeArray<byte>(c.vocab_size * c.dim * WeightSize, Allocator.Persistent);
     }
 
@@ -167,10 +168,10 @@ public class WeightsGPU : IDisposable {
 
   public ComputeBuffer GetWCLS() => wcls ?? token_embedding_table;
 
-  public WeightsGPU(LlamaConfig c) {
+  public WeightsGPU(LlamaConfig c, bool hasClassifierWeights) {
     token_embedding_table = CreateWeightsBuffer(c, c.vocab_size * c.dim);
     rms_final_weight = CreateWeightsBuffer(c, c.dim);
-    if (!c.UseSharedVocab)
+    if (hasClassifierWeights)
       wcls = CreateWeightsBuffer(c, c.vocab_size * c.dim);
 
     layerWeights = new LayerWeightsGPU[c.n_layers];
