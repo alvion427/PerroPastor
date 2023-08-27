@@ -40,28 +40,3 @@ void SetQuantizedData(uint3 id : SV_DispatchThreadID)
     float4 source = LoadSource(setquant_input[i + setquant_offset]);
     setquant_output[i + setquant_offset] = StoreDest(source);
 }
-
-#pragma kernel SetQuantizedDataInterleaved
-
-StructuredBuffer<SOURCE_TYPE_VEC> setquant_inputA;
-StructuredBuffer<SOURCE_TYPE_VEC> setquant_inputB;
-
-[numthreads(256, 1, 1)]
-void SetQuantizedDataInterleaved(uint3 id : SV_DispatchThreadID)
-{
-    if (id.x >= setquant_veclen)
-        return;
-
-    uint i = id.x * 2;
-
-    float4 a = LoadSource(setquant_inputA[i / 2]);
-    float4 b = LoadSource(setquant_inputB[i / 2]);
-    
-    float4 result0 = float4(a.x, b.x, a.y, b.y);
-    float4 result1 = float4(a.z, b.z, a.w, b.w);
-
-    setquant_output[i + 0] = StoreDest(result0);
-    setquant_output[i + 1] = StoreDest(result1);
-}
-
-

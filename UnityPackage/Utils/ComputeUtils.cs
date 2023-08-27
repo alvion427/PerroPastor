@@ -6,8 +6,7 @@ using UnityEngine;
 public static class ComputeUtils {
   private static ComputeShader _computeShader;
   private static int _setDataQuantizedKernel = -1;
-  private static int _setDataQuantizedInterleavedKernel = -1;
-
+  
   public static int GetVectorizedLength(int rawLength) {
     Debug.Assert(rawLength % 4 == 0);
     return rawLength / 4;
@@ -58,44 +57,10 @@ public static class ComputeUtils {
     stagingBuffer.Dispose();
   }
 
-  public static void SetQuantizedDataInterleaved(QuantizationModes sourceMode, QuantizationModes destMode, 
-    ComputeBuffer outputBuffer, NativeArray<byte> dataA, NativeArray<byte> dataB) {
-    _loadShader(sourceMode, destMode);
-
-    int count = dataA.Length / sourceMode.ElementSize();
-    int vecLen = count / 4;
-
-    // Load into staging buffers
-    ComputeBuffer stagingBufferA = new ComputeBuffer(count, sourceMode.ElementSize());
-    ComputeBuffer stagingBufferB = new ComputeBuffer(count, sourceMode.ElementSize());
-    stagingBufferA.SetData(dataA);
-    stagingBufferB.SetData(dataB);
-    
-    _computeShader.SetBuffer(_setDataQuantizedInterleavedKernel, "setquant_inputA", stagingBufferA);
-    _computeShader.SetBuffer(_setDataQuantizedInterleavedKernel, "setquant_inputB", stagingBufferB);
-    _computeShader.SetBuffer(_setDataQuantizedInterleavedKernel, "setquant_output", outputBuffer);
-    _computeShader.SetInt("setquant_veclen", vecLen);
-
-    int threadGroupsX = Mathf.CeilToInt(vecLen / 256.0f);
-    _computeShader.Dispatch(_setDataQuantizedInterleavedKernel, threadGroupsX, 1, 1);
-
-    float[] stagingAData = new float[count];
-    stagingBufferA.GetData(stagingAData);
-    float[] stagingBData = new float[count];
-    stagingBufferB.GetData(stagingBData);
-
-    half[] resultData = new half[count * 2];
-    outputBuffer.GetData(resultData);
-    
-    stagingBufferA.Dispose();
-    stagingBufferB.Dispose();
-  }
-
   private static void _loadShader(QuantizationModes sourceMode, QuantizationModes destMode) {
     if (_computeShader == null) {
       _computeShader = Resources.Load<ComputeShader>("ComputeUtils");
       _setDataQuantizedKernel = _computeShader.FindKernel("SetQuantizedData");
-      _setDataQuantizedInterleavedKernel = _computeShader.FindKernel("SetQuantizedDataInterleaved");
     }
     QuantizationUtil.EnableQuantizationKeywords(_computeShader, sourceMode, "SOURCE");
     QuantizationUtil.EnableQuantizationKeywords(_computeShader, destMode, "DEST");

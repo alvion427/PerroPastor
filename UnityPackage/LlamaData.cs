@@ -123,11 +123,7 @@ public class Weights : IDisposable {
   public int WeightSize => QuantizationMode.ElementSize();
   
   public NativeArray<byte> token_embedding_table; // (vocab_size, dim)
-
   public NativeArray<byte> rms_final_weight; // (dim) RMSNorm weights
-  public NativeArray<byte> freq_cis_real; // (seq_len, head_size/2)
-  public NativeArray<byte> freq_cis_imag; // (seq_len, head_size/2)
-
   public NativeArray<byte> wcls; // (vocab_size, dim)
 
   public LayerWeights[] layerWeights;
@@ -139,8 +135,6 @@ public class Weights : IDisposable {
 
     token_embedding_table = new NativeArray<byte>(c.vocab_size * c.dim * WeightSize, Allocator.Persistent);
     rms_final_weight = new NativeArray<byte>(c.dim * WeightSize, Allocator.Persistent);
-    freq_cis_real = new NativeArray<byte>(c.seq_len * headSize / 2 * WeightSize, Allocator.Persistent);
-    freq_cis_imag = new NativeArray<byte>(c.seq_len * headSize / 2 * WeightSize, Allocator.Persistent);
     if (!c.UseSharedVocab) {
       wcls = new NativeArray<byte>(c.vocab_size * c.dim * WeightSize, Allocator.Persistent);
     }
@@ -154,8 +148,6 @@ public class Weights : IDisposable {
   public void Dispose() {
     token_embedding_table.Dispose();
     rms_final_weight.Dispose();
-    freq_cis_real.Dispose();
-    freq_cis_imag.Dispose();
     if (wcls.IsCreated) {
       wcls.Dispose();
     }
@@ -169,7 +161,6 @@ public class Weights : IDisposable {
 public class WeightsGPU : IDisposable {
   public ComputeBuffer token_embedding_table;
   public ComputeBuffer rms_final_weight;
-  public ComputeBuffer freq_cis;
   public ComputeBuffer wcls;
 
   public LayerWeightsGPU[] layerWeights;
@@ -179,7 +170,6 @@ public class WeightsGPU : IDisposable {
   public WeightsGPU(LlamaConfig c) {
     token_embedding_table = CreateWeightsBuffer(c, c.vocab_size * c.dim);
     rms_final_weight = CreateWeightsBuffer(c, c.dim);
-    freq_cis = CreateWeightsBuffer(c, c.seq_len * c.head_size);
     if (!c.UseSharedVocab)
       wcls = CreateWeightsBuffer(c, c.vocab_size * c.dim);
 
@@ -192,7 +182,6 @@ public class WeightsGPU : IDisposable {
   public void Dispose() {
     token_embedding_table.Dispose();
     rms_final_weight.Dispose();
-    freq_cis.Dispose();
     if (wcls != null)
       wcls.Dispose();
 
@@ -206,8 +195,6 @@ public class WeightsGPU : IDisposable {
     QuantizationModes destMode = c.weight_quantization_mode;
     ComputeUtils.SetQuantizedData(sourceMode, destMode, token_embedding_table, weights.token_embedding_table);
     ComputeUtils.SetQuantizedData(sourceMode, destMode, rms_final_weight, weights.rms_final_weight);
-    ComputeUtils.SetQuantizedDataInterleaved(sourceMode, destMode, freq_cis, 
-      weights.freq_cis_real, weights.freq_cis_imag);
 
     if (wcls != null)
       ComputeUtils.SetQuantizedData(sourceMode, destMode, wcls, weights.wcls);

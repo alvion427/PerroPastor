@@ -556,9 +556,8 @@ public class Llama : MonoBehaviour {
 
     llamaShader.SetBuffer(_kernels.rope, "rope_q", q);
     llamaShader.SetBuffer(_kernels.rope, "rope_k", k);
-    llamaShader.SetBuffer(_kernels.rope, "rope_freq_cis", _weightsGPU.freq_cis);
-    llamaShader.SetInt("rope_freq_cis_offset", pos * headSize / 2);
-    llamaShader.SetInt("rope_stride", headSize / 2);
+    llamaShader.SetInt("rope_head_size", headSize);
+    llamaShader.SetInt("rope_pos", pos);
     llamaShader.SetInt("rope_length", vecLen);
 
     int threadGroupsX = Mathf.CeilToInt(vecLen / 256.0f);
@@ -567,9 +566,6 @@ public class Llama : MonoBehaviour {
     Profiler.EndSample();
 
     if (_Debug) {
-      half[] freq_cis = new half[_weightsGPU.freq_cis.count * 4];
-      _weightsGPU.freq_cis.GetData(freq_cis);
-
       float[] qData = new float[q.ElementCount<float>()];
       q.GetData(qData);
       string debugString = string.Join(", ", new ArraySegment<float>(qData, 0, 8));
@@ -892,8 +888,10 @@ public class Llama : MonoBehaviour {
 
         // Read remaining weights
         ReadNativeArray(br, _weights.rms_final_weight);
-        ReadNativeArray(br, _weights.freq_cis_real);
-        ReadNativeArray(br, _weights.freq_cis_imag);
+
+        // Skip over weights formerly associated with freq_cis_real and freq_cis_imag
+        int freqWeightsSize = _config.seq_len * _config.head_size * sizeof(float);
+        br.BaseStream.Position += freqWeightsSize; 
 
         // Read wcls
         if (!_config.UseSharedVocab) {
