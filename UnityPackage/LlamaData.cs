@@ -5,35 +5,25 @@ using System.Runtime.InteropServices;
 using Unity.Collections;
 using Unity.Mathematics;
 using UnityEngine;
+using UnityEngine.Profiling.Memory.Experimental;
 
 public enum QuantizationModes {
+  // unquantized
   Float32,
   Float16,
+  
+  // ggml types
+  Q8_0,   
 }
 
 public static class QuantizationUtil {
-  public static int ElementSize(this QuantizationModes mode) {
-    return QuantizationSizes[mode];
+  public static int BlockSize(this QuantizationModes quantMode) {
+    return BlockSizes[quantMode];
   }
-  
-  public static readonly Dictionary<QuantizationModes, RenderTextureFormat> QuantizationFormats =
-    new Dictionary<QuantizationModes, RenderTextureFormat>() {
-      { QuantizationModes.Float32, RenderTextureFormat.RFloat },
-      { QuantizationModes.Float16, RenderTextureFormat.RHalf }
-    };
 
-  public static readonly Dictionary<QuantizationModes, int> QuantizationSizes =
-    new Dictionary<QuantizationModes, int>() {
-      { QuantizationModes.Float32, Marshal.SizeOf<float>() },
-      { QuantizationModes.Float16, Marshal.SizeOf<half>() },
-    };
-
-  private static readonly Dictionary<QuantizationModes, string> QuantizationFlags =
-    new Dictionary<QuantizationModes, string>() {
-      { QuantizationModes.Float32, "QUANT_{0}_32" },
-      { QuantizationModes.Float16, "QUANT_{0}_16" },
-    };
-
+  public static int BlockSizeBytes(this QuantizationModes quantMode) {
+    return BlockByteSizes[quantMode];
+  }
 
   public static void EnableQuantizationKeywords(ComputeShader shader, QuantizationModes mode, string prefix) {
     foreach (var item in QuantizationFlags) {
@@ -46,24 +36,74 @@ public static class QuantizationUtil {
       }
     }
   }
+
+  public static int ElementSize(this QuantizationModes quantMode) {
+    if (quantMode == QuantizationModes.Float32) {
+      return 4;
+    }
+    else if (quantMode == QuantizationModes.Float16) {
+      return 2;
+    }
+    else {
+      throw new ArgumentException("Quantized buffers don't have an 'ElementSize'");
+    }
+  }
+  
+  private static readonly Dictionary<QuantizationModes, string> QuantizationFlags =
+    new Dictionary<QuantizationModes, string>() {
+      { QuantizationModes.Float32, "QUANT_{0}_32" },
+      { QuantizationModes.Float16, "QUANT_{0}_16" },
+      { QuantizationModes.Q8_0, "QUANT_{0}_Q8_0"}
+    };
+  
+  private static readonly Dictionary<QuantizationModes, int> BlockSizes = 
+    new Dictionary<QuantizationModes, int>() {
+      { QuantizationModes.Float32, 4 },
+      { QuantizationModes.Float16, 4 },
+      { QuantizationModes.Q8_0, 32}
+    };
+
+  private static readonly Dictionary<QuantizationModes, int> BlockByteSizes = 
+    new Dictionary<QuantizationModes, int>() {
+      { QuantizationModes.Float32, 16 },
+      { QuantizationModes.Float16, 8 },
+      { QuantizationModes.Q8_0, 36}
+    };
+  
+  public static unsafe float[] DequantizeCpu(ComputeBuffer quantizedBuffer, QuantizationModes mode, 
+    int offset = 0, int length = 0) {
+    int numBlocks = quantizedBuffer.count;
+    int blockSize = mode.BlockSize();
+    int elementCount = numBlocks * blockSize;
+
+    length = length == 0 ? numBlocks - offset : length; 
+
+    float[] result = new float[elementCount];
+    if (mode == QuantizationModes.Q8_0) {
+      Q8_0Block[] quantizedData = new Q8_0Block[quantizedBuffer.count];
+      quantizedBuffer.GetData(quantizedData);
+
+      if (offset + length > elementCount) {
+        throw new ArgumentException($"Not enough space in buffer: {offset} + {length} > {elementCount}");
+      }
+      for (int b = offset; b < offset + length; ++b) {
+        float scale = quantizedData[b].scale;
+        for (int i = 0; i < blockSize; ++i) {
+          int idx = (b - offset) * blockSize + i;
+          result[idx] = quantizedData[b].values[i] * scale;
+        }
+      }
+    }
+    else {
+      throw new ArgumentException("No dequantize implementation for " + mode);
+    }
+
+    return result;
+  }
 }
 
 [Serializable]
 public class LlamaConfig {
-  public LlamaConfig(
-    QuantizationModes sourceQuantizationMode, 
-    QuantizationModes weightQuantizationMode, 
-    QuantizationModes runtimeQuantizationMode) {
-
-    source_quantization_mode = sourceQuantizationMode;
-    weight_quantization_mode = weightQuantizationMode;
-    runtime_quantization_mode = runtimeQuantizationMode;
-  }
-
-  public readonly QuantizationModes source_quantization_mode;
-  public readonly QuantizationModes weight_quantization_mode;
-  public readonly QuantizationModes runtime_quantization_mode;
-
   public int dim; // Transformer dimension
   public int hidden_dim; // For FFN layers
   public int n_layers; // Number of layers
@@ -75,110 +115,36 @@ public class LlamaConfig {
   public int head_size => dim / n_heads;
 }
 
-public class LayerWeights : IDisposable {
-  public NativeArray<byte> rms_att_weight; // (dim) RMSNorm weights
-  public NativeArray<byte> rms_ffn_weight; // (dim)
+public class GpuTensor : IDisposable {
+  public Vector2Int Shape;
+  public QuantizationModes Mode;
+  public ComputeBuffer Buffer;
 
-  public NativeArray<byte> wq; // (dim, dim)
-  public NativeArray<byte> wk; // (dim, dim)
-  public NativeArray<byte> wv; // (dim, dim)
-  public NativeArray<byte> wo; // (dim, dim)
-
-  public NativeArray<byte> w1; // (hidden_dim, dim)
-  public NativeArray<byte> w2; // (dim, hidden_dim)
-  public NativeArray<byte> w3; // (hidden_dim, dim)
-
-  public LayerWeights(LlamaConfig c, QuantizationModes quantMode) {
-    int weightSize = quantMode.ElementSize();
-    rms_att_weight = new NativeArray<byte>(c.dim * weightSize, Allocator.Persistent);
-    rms_ffn_weight = new NativeArray<byte>(c.dim * weightSize, Allocator.Persistent);
-
-    wq = new NativeArray<byte>(c.dim * c.dim * weightSize, Allocator.Persistent);
-    wk = new NativeArray<byte>(c.dim * c.dim * weightSize, Allocator.Persistent);
-    wv = new NativeArray<byte>(c.dim * c.dim * weightSize, Allocator.Persistent);
-    wo = new NativeArray<byte>(c.dim * c.dim * weightSize, Allocator.Persistent);
-
-    w1 = new NativeArray<byte>(c.hidden_dim * c.dim * weightSize, Allocator.Persistent);
-    w2 = new NativeArray<byte>(c.dim * c.hidden_dim * weightSize, Allocator.Persistent);
-    w3 = new NativeArray<byte>(c.hidden_dim * c.dim * weightSize, Allocator.Persistent);
-  }
-
-  public void Dispose() {
-    rms_att_weight.Dispose();
-    rms_ffn_weight.Dispose();
-
-    wq.Dispose();
-    wk.Dispose();
-    wv.Dispose();
-    wo.Dispose();
-
-    w1.Dispose();
-    w2.Dispose();
-    w3.Dispose();
-  }
-}
-
-public class Weights : IDisposable {
-  public QuantizationModes QuantizationMode { get; private set; }
-  public int WeightSize => QuantizationMode.ElementSize();
-  public bool HasClassifierWeights { get => wcls.IsCreated; }
+  public long Size => Shape.x * Shape.y;
+  public long SizeBytes => Buffer.count * BlockSizeBytes;
+  public int BlockCount => (int)(Size / BlockSize);
+  public int BlockSize => Mode.BlockSize();
+  public int BlockSizeBytes => Mode.BlockSizeBytes();
   
-  public NativeArray<byte> token_embedding_table; // (vocab_size, dim)
-  public NativeArray<byte> rms_final_weight; // (dim) RMSNorm weights
-  public NativeArray<byte> wcls; // (vocab_size, dim)
-
-  public LayerWeights[] layerWeights;
-
-  public Weights(LlamaConfig c, QuantizationModes quantMode, bool hasClassifierWeights) {
-    QuantizationMode = quantMode;
-    
-    int headSize = c.dim / c.n_heads;
-
-    token_embedding_table = new NativeArray<byte>(c.vocab_size * c.dim * WeightSize, Allocator.Persistent);
-    rms_final_weight = new NativeArray<byte>(c.dim * WeightSize, Allocator.Persistent);
-    if (hasClassifierWeights) {
-      wcls = new NativeArray<byte>(c.vocab_size * c.dim * WeightSize, Allocator.Persistent);
-    }
-
-    layerWeights = new LayerWeights[c.n_layers];
-    for (int layer = 0; layer < c.n_layers; layer++) {
-      layerWeights[layer] = new LayerWeights(c, quantMode);
-    }
+  public GpuTensor(int rows, int cols, QuantizationModes mode) {
+    Shape = new Vector2Int(rows, cols);
+    Mode = mode;
+    Buffer = ComputeUtils.CreateBlockBuffer(rows * cols, mode);
   }
 
   public void Dispose() {
-    token_embedding_table.Dispose();
-    rms_final_weight.Dispose();
-    if (wcls.IsCreated) {
-      wcls.Dispose();
-    }
-
-    for (int layer = 0; layer < layerWeights.Length; layer++) {
-      layerWeights[layer].Dispose();
-    }
+    Buffer?.Dispose();
   }
 }
 
-public class WeightsGPU : IDisposable {
-  public ComputeBuffer token_embedding_table;
-  public ComputeBuffer rms_final_weight;
-  public ComputeBuffer wcls;
+public class WeightsGpu : IDisposable {
+  public GpuTensor token_embedding_table;
+  public GpuTensor rms_final_weight;
+  public GpuTensor wcls;
 
   public LayerWeightsGPU[] layerWeights;
 
-  public ComputeBuffer GetWCLS() => wcls ?? token_embedding_table;
-
-  public WeightsGPU(LlamaConfig c, bool hasClassifierWeights) {
-    token_embedding_table = CreateWeightsBuffer(c, c.vocab_size * c.dim);
-    rms_final_weight = CreateWeightsBuffer(c, c.dim);
-    if (hasClassifierWeights)
-      wcls = CreateWeightsBuffer(c, c.vocab_size * c.dim);
-
-    layerWeights = new LayerWeightsGPU[c.n_layers];
-    for (int layer = 0; layer < c.n_layers; layer++) {
-      layerWeights[layer] = new LayerWeightsGPU(c);
-    }
-  }
+  public GpuTensor GetWCLS() => wcls ?? token_embedding_table;
 
   public void Dispose() {
     token_embedding_table.Dispose();
@@ -189,69 +155,21 @@ public class WeightsGPU : IDisposable {
     for (int layer = 0; layer < layerWeights.Length; layer++) {
       layerWeights[layer].Dispose();
     }
-  }
-
-  public void LoadWeights(LlamaConfig c, Weights weights) {
-    QuantizationModes sourceMode = weights.QuantizationMode;
-    QuantizationModes destMode = c.weight_quantization_mode;
-    ComputeUtils.SetQuantizedData(sourceMode, destMode, token_embedding_table, weights.token_embedding_table);
-    ComputeUtils.SetQuantizedData(sourceMode, destMode, rms_final_weight, weights.rms_final_weight);
-
-    if (wcls != null)
-      ComputeUtils.SetQuantizedData(sourceMode, destMode, wcls, weights.wcls);
-
-    for (int layer = 0; layer < layerWeights.Length; layer++) {
-      layerWeights[layer].LoadWeights(c, weights.layerWeights[layer], sourceMode);
-    }
-  }
-
-  public static ComputeBuffer CreateWeightsBuffer(LlamaConfig config, int size) {
-    return ComputeUtils.CreateVectorizedBuffer(size, config.weight_quantization_mode.ElementSize());
   }
 }
 
 public class LayerWeightsGPU : IDisposable {
-  public ComputeBuffer rms_att_weight;
-  public ComputeBuffer rms_ffn_weight;
+  public GpuTensor rms_att_weight;
+  public GpuTensor rms_ffn_weight;
 
-  public ComputeBuffer wq;
-  public ComputeBuffer wk;
-  public ComputeBuffer wv;
-  public ComputeBuffer wo;
+  public GpuTensor wq;
+  public GpuTensor wk;
+  public GpuTensor wv;
+  public GpuTensor wo;
 
-  public ComputeBuffer w1;
-  public ComputeBuffer w2;
-  public ComputeBuffer w3;
-
-  public LayerWeightsGPU(LlamaConfig c) {
-    rms_att_weight = WeightsGPU.CreateWeightsBuffer(c, c.dim);
-    rms_ffn_weight = WeightsGPU.CreateWeightsBuffer(c, c.dim);
-
-    wq = WeightsGPU.CreateWeightsBuffer(c, c.dim * c.dim);
-    wk = WeightsGPU.CreateWeightsBuffer(c, c.dim * c.dim);
-    wv = WeightsGPU.CreateWeightsBuffer(c, c.dim * c.dim);
-    wo = WeightsGPU.CreateWeightsBuffer(c, c.dim * c.dim);
-
-    w1 = WeightsGPU.CreateWeightsBuffer(c, c.hidden_dim * c.dim);
-    w2 = WeightsGPU.CreateWeightsBuffer(c, c.dim * c.hidden_dim);
-    w3 = WeightsGPU.CreateWeightsBuffer(c, c.hidden_dim * c.dim);
-  }
-
-  public void LoadWeights(LlamaConfig c, LayerWeights weights, QuantizationModes sourceMode) {
-    QuantizationModes destMode = c.weight_quantization_mode;
-    
-    ComputeUtils.SetQuantizedData(sourceMode, destMode, rms_att_weight, weights.rms_att_weight);
-    ComputeUtils.SetQuantizedData(sourceMode, destMode, rms_ffn_weight, weights.rms_ffn_weight);
-
-    ComputeUtils.SetQuantizedData(sourceMode, destMode, wq, weights.wq);
-    ComputeUtils.SetQuantizedData(sourceMode, destMode, wk, weights.wk);
-    ComputeUtils.SetQuantizedData(sourceMode, destMode, wv, weights.wv);
-    ComputeUtils.SetQuantizedData(sourceMode, destMode, wo, weights.wo);
-
-    ComputeUtils.SetQuantizedData(sourceMode, destMode, w1, weights.w1);
-    ComputeUtils.SetQuantizedData(sourceMode, destMode, w2, weights.w2);
-    ComputeUtils.SetQuantizedData(sourceMode, destMode, w3, weights.w3);
-  }
+  public GpuTensor w1;
+  public GpuTensor w2;
+  public GpuTensor w3;
 
   public void Dispose() {
     rms_att_weight.Dispose();
@@ -272,10 +190,9 @@ public class LayerPersistentState : IDisposable {
   public ComputeBuffer key_cache; // (seq_len, dim)
   public ComputeBuffer value_cache; // (seq_len, dim)
 
-  public LayerPersistentState(LlamaConfig c) {
-    int runtimeSize = c.runtime_quantization_mode.ElementSize();
-    key_cache = ComputeUtils.CreateVectorizedBuffer(c.seq_len * c.dim, runtimeSize);
-    value_cache = ComputeUtils.CreateVectorizedBuffer(c.seq_len * c.dim, runtimeSize);
+  public LayerPersistentState(LlamaConfig c, QuantizationModes quantMode) {
+    key_cache = ComputeUtils.CreateBlockBuffer(c.seq_len * c.dim, quantMode);
+    value_cache = ComputeUtils.CreateBlockBuffer(c.seq_len * c.dim, quantMode);
   }
 
   public void Dispose() {
@@ -289,10 +206,10 @@ public class LayerPersistentState : IDisposable {
 public class PersistentState : IDisposable {
   public LayerPersistentState[] layers;
 
-  public PersistentState(LlamaConfig c) {
+  public PersistentState(LlamaConfig c, QuantizationModes quantMode) {
     layers = new LayerPersistentState[c.n_layers];
     for (int layer = 0; layer < c.n_layers; layer++) {
-      layers[layer] = new LayerPersistentState(c);
+      layers[layer] = new LayerPersistentState(c, quantMode);
     }
   }
 
@@ -328,7 +245,7 @@ public class RunState : IDisposable {
   public ComputeBuffer scalarTemp0;
   public ComputeBuffer scalarTemp1;
 
-  public RunState(LlamaConfig c) {
+  public RunState(LlamaConfig c, QuantizationModes rutnimeQuantizationMode) {
     x = new ComputeBuffer(c.dim, sizeof(float));
     xb = new ComputeBuffer(c.dim, sizeof(float));
     xb2 = new ComputeBuffer(c.dim, sizeof(float));
@@ -376,7 +293,6 @@ public class LlamaKernels {
   public int fixedToFloat;
   public int loadEmbedding;
   public int matmul;
-  public int matmulTex;
   public int accumulate;
   public int rmsNorm;
   public int rope;
@@ -397,7 +313,6 @@ public class LlamaKernels {
     loadEmbedding = shader.FindKernel("LoadEmbedding");
     fixedToFloat = shader.FindKernel("FixedToFloat");
     matmul = shader.FindKernel("MatMul");
-    matmulTex = shader.FindKernel("MatMulTex");
     accumulate = shader.FindKernel("Accumulate");
     rmsNorm = shader.FindKernel("RMSNorm");
     rope = shader.FindKernel("Rope");

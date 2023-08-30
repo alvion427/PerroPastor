@@ -1,16 +1,25 @@
-#pragma multi_compile QUANT_WEIGHT_32 QUANT_WEIGHT_16
+#pragma multi_compile QUANT_WEIGHT_32 QUANT_WEIGHT_16 QUANT_WEIGHT_Q8_0
+//#define QUANT_WEIGHT_Q8_0 1
 #pragma multi_compile QUANT_RUNTIME_32 QUANT_RUNTIME_16
 
 #include "Common.cginc"
 
 #if QUANT_WEIGHT_16
-    #define WEIGHT_TYPE_VEC uint2
-    #define StoreWeights StoreVec16f
-    #define LoadWeights LoadVec16f
+    #define WEIGHT_BLOCK_TYPE uint2
+    #define STORE_WEIGHT StoreVec16f
+    #define LOAD_WEIGHT LoadVec16f
+    #define WEIGHT_IS_QUANTIZED 0
+#elif QUANT_WEIGHT_Q8_0
+    #define WEIGHT_BLOCK_VEC 8
+    #define WEIGHT_BLOCK_TYPE Q8_0_Block
+    #define ENCODE_WEIGHT Encode_Q8_0
+    #define DECODE_WEIGHT Decode_Q8_0
+    #define WEIGHT_IS_QUANTIZED 1
 #else /* QUANT_WEIGHT_32 */
-    #define WEIGHT_TYPE_VEC float4
-    #define StoreWeights StoreVec32f
-    #define LoadWeights LoadVec32f
+    #define WEIGHT_BLOCK_TYPE float4
+    #define STORE_WEIGHT StoreVec32f
+    #define LOAD_WEIGHT LoadVec32f
+    #define WEIGHT_IS_QUANTIZED 0
 #endif
 
 #if QUANT_RUNTIME_16
@@ -87,26 +96,43 @@ void FixedToFloat(uint3 id : SV_DispatchThreadID) {
 #pragma kernel LoadEmbedding
 
 StructuredBuffer<int> loadembedding_token;
-StructuredBuffer<WEIGHT_TYPE_VEC> loadembedding_source;
+StructuredBuffer<WEIGHT_BLOCK_TYPE> loadembedding_source;
 RWStructuredBuffer<float4> loadembedding_dest;
-uint loadembedding_veclen;
+uint loadembedding_blockCount;
 
 [numthreads(kThreadsPerGroup, 1, 1)]
 void LoadEmbedding(uint3 id : SV_DispatchThreadID) {
-    if (id.x >= loadembedding_veclen) return;
+    if (id.x >= loadembedding_blockCount) return;
+
     int token = loadembedding_token[0];
-    int sourceOffset = token * loadembedding_veclen;
-    loadembedding_dest[id.x] = LoadWeights(loadembedding_source[sourceOffset + id.x]);
+    int sourceIndex = token * loadembedding_blockCount + id.x;
+
+#if !WEIGHT_IS_QUANTIZED    
+    loadembedding_dest[id.x] = LOAD_WEIGHT(loadembedding_source[sourceIndex]);
+#else
+    WEIGHT_BLOCK_TYPE block = loadembedding_source[sourceIndex];
+    const float scale = block.scale;
+
+    int destOffset = id.x * WEIGHT_BLOCK_VEC;
+
+    [unroll]
+    for (uint valueIndex = 0; valueIndex < WEIGHT_BLOCK_VEC; ++valueIndex)
+    {
+        const uint source = block.values[valueIndex];
+        float4 v = DECODE_WEIGHT(source, scale);
+        loadembedding_dest[destOffset + valueIndex] = v;
+    }
+#endif
 }
 
 /// MatMul
 #pragma kernel MatMul
 
-StructuredBuffer<WEIGHT_TYPE_VEC> matmul_matrixW;
+StructuredBuffer<WEIGHT_BLOCK_TYPE> matmul_matrixW;
 StructuredBuffer<float4> matmul_vectorX;
 RWStructuredBuffer<float> matmul_vectorOut;
 uint matmul_rows;
-uint matmul_cols_vec;
+uint matmul_blocksPerRow;
 
 [numthreads(kThreadsPerGroup, 1, 1)]
 void MatMul(uint3 id : SV_DispatchThreadID) {
@@ -114,36 +140,31 @@ void MatMul(uint3 id : SV_DispatchThreadID) {
     if (row >= matmul_rows) return;
     
     float sum = 0;
-    for (uint col = 0; col < matmul_cols_vec; col++) {
-        float4 a = LoadWeights(matmul_matrixW[id.x * matmul_cols_vec + col]);
+#if !WEIGHT_IS_QUANTIZED    
+    for (uint col = 0; col < matmul_blocksPerRow; col++) {
+        float4 a = LOAD_WEIGHT(matmul_matrixW[row * matmul_blocksPerRow + col]);
         float4 b = matmul_vectorX[col];
         sum += dot(a, b);
     }
-    matmul_vectorOut[row] = sum;
-}
-
-#pragma kernel MatMulTex
-
-Texture2D<float> matmultex_matrixW;
-//sampler2D sampler_matmultex_matrixW;
-
-StructuredBuffer<float> matmultex_vectorX;
-RWStructuredBuffer<float> matmultex_vectorOut;
-uint matmultex_rows;
-uint matmultex_cols;
-
-[numthreads(kThreadsPerGroup, 1, 1)]
-void MatMulTex(uint3 id : SV_DispatchThreadID) {
-    uint row = id.x;
-    if (row >= matmultex_rows) return;
-
-    float sum = 0;
-    for (uint col = 0; col < matmultex_cols; col++) {
-        const float matrixWValue0 = matmultex_matrixW[uint2(col, row)];
-        sum += matrixWValue0 * matmultex_vectorX[col];
+#else
+    for (uint b = 0; b < matmul_blocksPerRow; ++b)
+    {
+        WEIGHT_BLOCK_TYPE block = matmul_matrixW[row * matmul_blocksPerRow + b];
+        const float scale = block.scale;
+        
+        [unroll]
+        for (uint valueIndex = 0; valueIndex < WEIGHT_BLOCK_VEC; ++valueIndex)
+        {
+            uint col = b * WEIGHT_BLOCK_VEC + valueIndex; 
+            float4 a = DECODE_WEIGHT(block.values[valueIndex], scale);
+            float4 b = matmul_vectorX[col];
+            sum += dot(a, b);
+        }
     }
 
-    matmultex_vectorOut[row] = sum;
+#endif
+
+    matmul_vectorOut[row] = sum;
 }
 
 /// Accumulate
@@ -163,22 +184,21 @@ void Accumulate(uint3 id : SV_DispatchThreadID) {
 #pragma kernel RMSNorm
 
 StructuredBuffer<float4> rmsnorm_In; // Input values
-StructuredBuffer<WEIGHT_TYPE_VEC> rmsnorm_Weight; // Weights
+StructuredBuffer<WEIGHT_BLOCK_TYPE> rmsnorm_Weight; // Weights
 RWStructuredBuffer<float4> rmsnorm_Out; // Output values
-uint rmsnorm_veclen; // Length of the input and output vectors
+uint rmsnorm_vecLen;
+uint rmsnorm_blockCount;
 float rmsnorm_length;
 
 [numthreads(1, 1, 1)]
 void RMSNorm(uint3 id : SV_DispatchThreadID) {
     const float kEpsilon = 1e-5f;
-    uint i = id.x;
-    if (i >= rmsnorm_veclen) return;
 
     uint j;
     
     // Calculate sum of squares
     float ss = 0.0f;
-    for (j = 0; j < rmsnorm_veclen; j++) {
+    for (j = 0; j < rmsnorm_vecLen; j++) {
         ss += dot(rmsnorm_In[j], rmsnorm_In[j]);
     }
     ss /= rmsnorm_length;
@@ -186,11 +206,25 @@ void RMSNorm(uint3 id : SV_DispatchThreadID) {
     ss = 1.0f / sqrt(ss);
 
     // Normalize and scale
-    for (j = 0; j < rmsnorm_veclen; ++j)
+#if !WEIGHT_IS_QUANTIZED
+    for (j = 0; j < rmsnorm_vecLen; ++j)
     {
-        float4 weights = LoadWeights(rmsnorm_Weight[j]);
+        float4 weights = LOAD_WEIGHT(rmsnorm_Weight[j]);
         rmsnorm_Out[j] = weights * (ss * rmsnorm_In[j]);
     }
+#else
+    for (uint b = 0; b < rmsnorm_blockCount; ++b)
+    {
+        WEIGHT_BLOCK_TYPE block = rmsnorm_Weight[b];
+        const float scale = block.scale;
+        for (uint valueIndex = 0; valueIndex < WEIGHT_BLOCK_VEC; ++valueIndex)
+        {
+            float4 weights = DECODE_WEIGHT(block.values[valueIndex], scale);
+            j = b * WEIGHT_BLOCK_VEC + valueIndex;
+            rmsnorm_Out[j] = weights * (ss * rmsnorm_In[j]);
+        }
+    }
+#endif
 }
 
 /// Rope
@@ -235,32 +269,46 @@ RWStructuredBuffer<float> softmax_output;
 StructuredBuffer<int> softmax_max_fixed;
 RWStructuredBuffer<int> softmax_sum_fixed;
 uint softmax_length;
+uint softmax_numBatches;
 uint softmax_offset;
 
+#define SOFTMAX_STRIDE 8
+
 groupshared int softmax_groupSumFixed;
+groupshared float softmax_maxValue;
 
-[numthreads(kThreadsPerGroup, 1, 1)]
+[numthreads(256, 1, 1)]
 void SoftmaxExp(uint3 id : SV_DispatchThreadID, uint3 gid : SV_GroupThreadID) {
-    uint i = id.x;
-    if (i >= softmax_length) return;
-
-    if (all(gid) == 0)
+    if (gid.x == 0)
     {
         softmax_groupSumFixed = 0;
+        softmax_maxValue = softmax_max_fixed[0] / kFixedPointScale; 
+    }
+
+    GroupMemoryBarrierWithGroupSync();
+    
+    if (id.x < softmax_numBatches)
+    {
+        uint start = id.x * SOFTMAX_STRIDE;
+        uint end = min(start + SOFTMAX_STRIDE, softmax_length); 
+        float totalExp = 0;
+        for (uint j = start; j < end; ++j)
+        {
+            float xExp = exp(softmax_input[softmax_offset + j] - softmax_maxValue);
+            softmax_output[softmax_offset + j] = xExp;
+            totalExp += xExp;
+        }
+
+        int xExpFixed = (int)(totalExp * kFixedPointScale);
+        InterlockedAdd(softmax_groupSumFixed, xExpFixed);
     }
 
     GroupMemoryBarrierWithGroupSync();
 
-    float maxValue = softmax_max_fixed[0] / kFixedPointScale;
-    float xExp = exp(softmax_input[softmax_offset + i] - maxValue);
-    softmax_output[softmax_offset + i] = xExp;
-
-    int xExpFixed = (int)(xExp * kFixedPointScale);
-    InterlockedAdd(softmax_groupSumFixed, xExpFixed);
-
-    GroupMemoryBarrierWithGroupSync();
-
-    InterlockedAdd(softmax_sum_fixed[0], (int)(xExp * kFixedPointScale));
+    if (gid.x == 0)
+    {
+        InterlockedAdd(softmax_sum_fixed[0], softmax_groupSumFixed);
+    }
 }
 
 [numthreads(kThreadsPerGroup, 1, 1)]
@@ -278,7 +326,6 @@ void SoftmaxDivide(uint3 id : SV_DispatchThreadID, uint3 gid : SV_GroupThreadID)
 
 StructuredBuffer<float4> compute_attention_q; // Query vectors
 StructuredBuffer<RUNTIME_TYPE_VEC> compute_attention_k; // Key cache
-//StructuredBuffer<uint2> compute_attention_k; // Key cache
 RWStructuredBuffer<float> compute_attention_att; // Attention scores
 
 uint compute_attention_head; // Which head we are processing
@@ -479,7 +526,7 @@ groupshared int findmaxval_groupMaxVal;
 void FindMaxValue(uint3 id : SV_DispatchThreadID, uint3 gid : SV_GroupThreadID) {
     if (all(gid) == 0)
     {
-        findmaxval_groupMaxVal = -1000;
+        findmaxval_groupMaxVal = -127 * kFixedPointScale;
     }
 
     GroupMemoryBarrierWithGroupSync();

@@ -9,6 +9,11 @@ public static class TextureUtils {
   private static ComputeShader _computeShader;
   private static int _setTextureKernel = -1;
   
+  public static void Reset() {
+    _computeShader = null;
+    _setTextureKernel = -1;
+  }
+  
   public static void SetTextureData(RenderTexture tex, NativeArray<float> data) {
     _loadShader();
 

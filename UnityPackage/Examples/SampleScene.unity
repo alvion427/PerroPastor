@@ -307,13 +307,12 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   Query: 
-  Temperature: 0.9
+  Temperature: 0
   RandomSeed: -1
   RunOnStart: 255
-  QuantizationMode: 1
-  RuntimeQuantizationMode: 1
+  RuntimeQuantizationMode: 0
   ModelLoader: {fileID: 0}
-  MaxTokensPerFrame: 5
+  MaxTokensPerFrame: 1
   QueryTokens: 
   ResultTokens: 
   SaveTrace: 
@@ -356,6 +355,7 @@ MonoBehaviour:
     n_kv_heads: 0
     vocab_size: 0
     seq_len: 0
+  QuantMode: 1
 --- !u!114 &606020846
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -368,7 +368,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 3629b295345cda2458f9dc92eec361ca, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  ModelPath: c:\joev\models\open-llama-3b-v2-f16.bin
+  ModelPath: c:\joev\models\flan-open-llama-3b-q8_0.bin
 --- !u!1 &826573143
 GameObject:
   m_ObjectHideFlags: 0
@@ -620,56 +620,3 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   Llama: {fileID: 606020842}
   Text: {fileID: 1843191018}
---- !u!1 &2036201645
-GameObject:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  serializedVersion: 6
-  m_Component:
-  - component: {fileID: 2036201647}
-  - component: {fileID: 2036201646}
-  m_Layer: 0
-  m_Name: GGMLInspector
-  m_TagString: Untagged
-  m_Icon: {fileID: 0}
-  m_NavMeshLayer: 0
-  m_StaticEditorFlags: 0
-  m_IsActive: 0
---- !u!114 &2036201646
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 2036201645}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: c0e2c4e65751cf049a4a0ce4996dace8, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
-  Path: c:\joev\models\open-llama-3b-v2-f16.bin
-  Config:
-    dim: 0
-    hidden_dim: 0
-    n_layers: 0
-    n_heads: 0
-    n_kv_heads: 0
-    vocab_size: 0
-    seq_len: 0
---- !u!4 &2036201647
-Transform:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 2036201645}
-  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 0, y: 0, z: -10}
-  m_LocalScale: {x: 1, y: 1, z: 1}
-  m_ConstrainProportionsScale: 0
-  m_Children: []
-  m_Father: {fileID: 0}
-  m_RootOrder: 4
-  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}

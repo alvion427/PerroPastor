@@ -1,11 +1,7 @@
 using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Linq;
 using UnityEngine;
-using Unity.Collections;
-using Unity.Collections.LowLevel.Unsafe;
-using Unity.Mathematics;
 using UnityEngine.Profiling;
 using UnityEngine.Rendering;
 
@@ -15,7 +11,6 @@ public class Llama : MonoBehaviour {
   public int RandomSeed = -1; // -1 means use time
   public int RunOnStart = 0;
 
-  public QuantizationModes QuantizationMode = QuantizationModes.Float32;
   public QuantizationModes RuntimeQuantizationMode = QuantizationModes.Float32;
   public ModelLoaderBase ModelLoader;
   private ComputeShader _llamaShader;
@@ -36,8 +31,7 @@ public class Llama : MonoBehaviour {
 
   private bool _isInitialized = false;
   private LlamaConfig _config;
-  private Weights _weights;
-  private WeightsGPU _weightsGPU;
+  private WeightsGpu _weightsGpu;
   private RunState _runState;
   private PersistentState _persistentState;
   private System.Random _rng;
@@ -48,6 +42,10 @@ public class Llama : MonoBehaviour {
   public bool _Debug = false;
 
   void Start() {
+    // We need to reset any static state to allow us to run in editor without domain reloading.
+    ComputeUtils.Reset();
+    TextureUtils.Reset();
+    
     if (!string.IsNullOrEmpty(CheckTrace)) {
       _gpuStateDebugger = new GpuStateDebugger(GpuStateDebugger.Modes.Check, CheckTrace);
     }
@@ -62,9 +60,9 @@ public class Llama : MonoBehaviour {
     if (ModelLoader == null) {
       ModelLoader = GetComponents<ModelLoaderBase>().FirstOrDefault(comp => comp.enabled);
     } 
-    ModelLoader.OnLoaded += (config, weights, tokenizer) => {
+    ModelLoader.OnLoaded += (config, weightsGpu, tokenizer) => {
       _config = config;
-      _weights = weights;
+      _weightsGpu = weightsGpu;
       _tokenizer = tokenizer;
       
       Initialize();
@@ -74,7 +72,7 @@ public class Llama : MonoBehaviour {
       }
     };
       
-    ModelLoader.RequestLoad(QuantizationMode, RuntimeQuantizationMode);
+    ModelLoader.RequestLoad();
   }
 
   private void OnDestroy() {
@@ -205,16 +203,16 @@ public class Llama : MonoBehaviour {
       // pre-scales the inputs to the layers using RMS (root-mean-squared) normalization.  
       // NOTE!  RMSNorm also sneaks in a scaling by a set of weights.  These weights are defined per-layer, and
       // allow each layer to emphasize different features in the input.
-      RmsNorm(_runState.x, _weightsGPU.layerWeights[l].rms_att_weight, _runState.xb, dim);
+      RmsNorm(_runState.x, _weightsGpu.layerWeights[l].rms_att_weight, _runState.xb, dim);
       _gpuStateDebugger?.ProcessState($"token{_pos}_layer{l}_rmsnorm", _runState.xb);
 
       // QKV (query, key, value) matmuls for this position.
       // The normalized layer input is multiplied by (dim, dim) matrices wq, wk, and wv, the results of which
       // are stored in the (dim,) vectors q, k, and v respectively.  You can think of this at the query, key, and
       // value vectors for the current token.
-      MatMul(_weightsGPU.layerWeights[l].wq, _runState.xb, _runState.q, dim, dim);
-      MatMul(_weightsGPU.layerWeights[l].wk, _runState.xb, _runState.k, dim, dim);
-      MatMul(_weightsGPU.layerWeights[l].wv, _runState.xb, _runState.v, dim, dim);
+      MatMul(_weightsGpu.layerWeights[l].wq, _runState.xb, _runState.q, dim, dim);
+      MatMul(_weightsGpu.layerWeights[l].wk, _runState.xb, _runState.k, dim, dim);
+      MatMul(_weightsGpu.layerWeights[l].wv, _runState.xb, _runState.v, dim, dim);
 
       _gpuStateDebugger?.ProcessState($"token{_pos}_layer{l}_q", _runState.q);
       _gpuStateDebugger?.ProcessState($"token{_pos}_layer{l}_k", _runState.k);
@@ -277,7 +275,7 @@ public class Llama : MonoBehaviour {
 
       // Final matmul to get the output of the attention.  This allows us to apply some additional learned weights
       // to the output of the attention.
-      MatMul(_weightsGPU.layerWeights[l].wo, _runState.xb, _runState.xb2, dim, dim);
+      MatMul(_weightsGpu.layerWeights[l].wo, _runState.xb, _runState.xb2, dim, dim);
       _gpuStateDebugger?.ProcessState($"token{_pos}_layer{l}_weighted_attention", _runState.xb2);
 
       // Residual connection back into x.  This allows us to combine many layers without losing signal during
@@ -286,7 +284,7 @@ public class Llama : MonoBehaviour {
       _gpuStateDebugger?.ProcessState($"token{_pos}_layer{l}_accumulate_attention", _runState.x);
 
       // A final RMS norm of the outputs of the attention module.
-      RmsNorm(_runState.x, _weightsGPU.layerWeights[l].rms_ffn_weight, _runState.xb, dim);
+      RmsNorm(_runState.x, _weightsGpu.layerWeights[l].rms_ffn_weight, _runState.xb, dim);
       _gpuStateDebugger?.ProcessState($"token{_pos}_layer{l}_attention_norm", _runState.xb);
 
       // For the feedforward network, we use a 2-layer MLP with an additional elementwise multiply to allow the
@@ -295,19 +293,19 @@ public class Llama : MonoBehaviour {
       // The FFN would be expressed in pytorch as: w2(F.silu(w1(x)) * w3(x))
 
       // Multiply w1(x) to expand (dim,) to (hidden_dim,)
-      MatMul(_weightsGPU.layerWeights[l].w1, _runState.xb, _runState.hb, hidden_dim, dim);
+      MatMul(_weightsGpu.layerWeights[l].w1, _runState.xb, _runState.hb, hidden_dim, dim);
 
       // Silu nonlinearity
       Silu(_runState.hb, hidden_dim);
 
       // Multiply w3(x) to calculate gating parameters (hidden_dim,)
-      MatMul(_weightsGPU.layerWeights[l].w3, _runState.xb, _runState.hb2, hidden_dim, dim);
+      MatMul(_weightsGpu.layerWeights[l].w3, _runState.xb, _runState.hb2, hidden_dim, dim);
 
       // Elementwise multiply with w3(x) to apply gating (amplify or diminish results of w1(x))
       Multiply(_runState.hb, _runState.hb2, _runState.hb, hidden_dim);
 
       // Multiply result by w2 to compress back to (dim,)
-      MatMul(_weightsGPU.layerWeights[l].w2, _runState.hb, _runState.xb, dim, hidden_dim);
+      MatMul(_weightsGpu.layerWeights[l].w2, _runState.hb, _runState.xb, dim, hidden_dim);
       _gpuStateDebugger?.ProcessState($"token{_pos}_layer{l}_ffn", _runState.xb);
 
       // Again, apply a residual connection back to the original layer input to preserve the gradient.
@@ -316,26 +314,21 @@ public class Llama : MonoBehaviour {
     }
     
     // Final rmsnorm of all layer results
-    RmsNorm(_runState.x, _weightsGPU.rms_final_weight, _runState.xb, dim);
+    RmsNorm(_runState.x, _weightsGpu.rms_final_weight, _runState.xb, dim);
     _gpuStateDebugger?.ProcessState($"token{_pos}_final_rmsnorm", _runState.xb);
 
     // Classify normalized results into logits with one big, fat matmul
-    MatMul(_weightsGPU.GetWCLS(), _runState.xb, _runState.logits, _config.vocab_size, dim);
+    MatMul(_weightsGpu.GetWCLS(), _runState.xb, _runState.logits, _config.vocab_size, dim);
     _gpuStateDebugger?.ProcessState($"token{_pos}_classifier", _runState.logits);
   }
 
   private void Initialize() {
     _isInitialized = true;
 
-    QuantizationUtil.EnableQuantizationKeywords(_llamaShader, _config.source_quantization_mode, "SOURCE");
-    QuantizationUtil.EnableQuantizationKeywords(_llamaShader, _config.weight_quantization_mode, "WEIGHT");
-    QuantizationUtil.EnableQuantizationKeywords(_llamaShader, _config.runtime_quantization_mode, "RUNTIME");
+    QuantizationUtil.EnableQuantizationKeywords(_llamaShader, RuntimeQuantizationMode, "RUNTIME");
     
-    _weightsGPU = new WeightsGPU(_config, _weights.HasClassifierWeights);  
-    _weightsGPU.LoadWeights(_config, _weights);
-
-    _runState = new RunState(_config);
-    _persistentState = new PersistentState(_config);
+    _runState = new RunState(_config, RuntimeQuantizationMode);
+    _persistentState = new PersistentState(_config, RuntimeQuantizationMode);
   }
 
   private void Uninitialize() {
@@ -344,8 +337,7 @@ public class Llama : MonoBehaviour {
     _persistentState.Dispose();
     _runState.Dispose();
 
-    _weightsGPU.Dispose();
-    _weights.Dispose();
+    _weightsGpu.Dispose();
 
     _isInitialized = false;
   }
@@ -438,21 +430,30 @@ public class Llama : MonoBehaviour {
   private void LoadEmbedding(ComputeBuffer embedding, ComputeBuffer token) {
     Profiler.BeginSample("loadEmbedding");
 
-    int veclen = ComputeUtils.GetVectorizedLength(_config.dim);
+    int blockCount = _config.dim / _weightsGpu.token_embedding_table.BlockSize;
 
     // Set the buffers
     _llamaShader.SetBuffer(_kernels.loadEmbedding, "loadembedding_token", token);
-    _llamaShader.SetBuffer(_kernels.loadEmbedding, "loadembedding_source", _weightsGPU.token_embedding_table);
+    _llamaShader.SetBuffer(_kernels.loadEmbedding, "loadembedding_source", _weightsGpu.token_embedding_table);
     _llamaShader.SetBuffer(_kernels.loadEmbedding, "loadembedding_dest", embedding);
-    _llamaShader.SetInt("loadembedding_veclen", veclen);
+    _llamaShader.SetInt("loadembedding_blockCount", blockCount);
 
     // Dispatch the kernel
-    int threadGroupsX = Mathf.CeilToInt(veclen / 256.0f);
+    int threadGroupsX = Mathf.CeilToInt(blockCount / 256.0f);
     _llamaShader.Dispatch(_kernels.loadEmbedding, threadGroupsX, 1, 1);
 
     Profiler.EndSample();
 
     if (_Debug) {
+      float[] dequantizedData = null;
+      if (_weightsGpu.token_embedding_table.Mode == QuantizationModes.Q8_0) {
+        dequantizedData = QuantizationUtil.DequantizeCpu(_weightsGpu.token_embedding_table.Buffer, _weightsGpu.token_embedding_table.Mode);
+      }
+      else {
+        dequantizedData = new float[_weightsGpu.token_embedding_table.Buffer.count * 4];
+        _weightsGpu.token_embedding_table.Buffer.GetData(dequantizedData);
+      }
+      
       int[] tokenData = new int[token.ElementCount<int>()];
       token.GetData(tokenData);
 
@@ -463,45 +464,20 @@ public class Llama : MonoBehaviour {
     }
   }
 
-  private void MatMul(ComputeBuffer matrixW, ComputeBuffer vectorX, ComputeBuffer vectorOut, int rows, int cols) {
+  private void MatMul(GpuTensor matrixW, ComputeBuffer vectorX, ComputeBuffer vectorOut, int rows, int cols) {
     Profiler.BeginSample("Matmul");
 
-    int colsVec = ComputeUtils.GetVectorizedLength(cols);
+    int blocksPerRow = cols / matrixW.BlockSize;
 
     // W (d,n) @ x (n,) -> xout (d,)
     _llamaShader.SetBuffer(_kernels.matmul, "matmul_matrixW", matrixW);
     _llamaShader.SetBuffer(_kernels.matmul, "matmul_vectorX", vectorX);
     _llamaShader.SetBuffer(_kernels.matmul, "matmul_vectorOut", vectorOut);
     _llamaShader.SetInt("matmul_rows", rows);
-    _llamaShader.SetInt("matmul_cols_vec", colsVec);
-
+    _llamaShader.SetInt("matmul_blocksPerRow", blocksPerRow);
+    
     int threadGroupsX = Mathf.CeilToInt(rows / 256.0f);
     _llamaShader.Dispatch(_kernels.matmul, threadGroupsX, 1, 1);
-    Profiler.EndSample();
-
-    if (_Debug) {
-      float[] resultData = new float[vectorOut.ElementCount<float>()];
-      vectorOut.GetData(resultData);
-      string debugString = string.Join(", ", new ArraySegment<float>(resultData, 0, 8));
-      Debug.Log(debugString);
-    }
-  }
-
-  private void MatMulTex(RenderTexture matrixW, ComputeBuffer vectorX, ComputeBuffer vectorOut, int rows, int cols) {
-    Profiler.BeginSample("MatmulTex");
-
-    int kernel = _kernels.matmulTex;
-
-    // W (rows,cols) @ x (rows,) -> xout (d,)
-    _llamaShader.SetTexture(kernel, "matmultex_matrixW", matrixW);
-    _llamaShader.SetTexture(kernel, "sampler_matmultex_matrixW", matrixW);
-    _llamaShader.SetBuffer(kernel, "matmultex_vectorX", vectorX);
-    _llamaShader.SetBuffer(kernel, "matmultex_vectorOut", vectorOut);
-    _llamaShader.SetInt("matmultex_rows", rows);
-    _llamaShader.SetInt("matmultex_cols", cols);
-
-    int threadGroupsX = Mathf.CeilToInt(rows / 256.0f);
-    _llamaShader.Dispatch(kernel, threadGroupsX, 1, 1);
     Profiler.EndSample();
 
     if (_Debug) {
@@ -533,15 +509,17 @@ public class Llama : MonoBehaviour {
     }
   }
 
-  private void RmsNorm(ComputeBuffer bufferIn, ComputeBuffer bufferWeight, ComputeBuffer resultBuffer, int length) {
+  private void RmsNorm(ComputeBuffer bufferIn, GpuTensor rmsWeights, ComputeBuffer resultBuffer, int length) {
     Profiler.BeginSample("RmsNorm");
 
     int vecLen = ComputeUtils.GetVectorizedLength(length);
+    int blockCount = _config.dim / _weightsGpu.token_embedding_table.BlockSize;
 
     _llamaShader.SetBuffer(_kernels.rmsNorm, "rmsnorm_In", bufferIn);
-    _llamaShader.SetBuffer(_kernels.rmsNorm, "rmsnorm_Weight", bufferWeight);
+    _llamaShader.SetBuffer(_kernels.rmsNorm, "rmsnorm_Weight", rmsWeights);
     _llamaShader.SetBuffer(_kernels.rmsNorm, "rmsnorm_Out", resultBuffer);
-    _llamaShader.SetInt("rmsnorm_veclen", vecLen);
+    _llamaShader.SetInt("rmsnorm_vecLen", vecLen);
+    _llamaShader.SetInt("rmsnorm_blockCount", blockCount);
     _llamaShader.SetFloat("rmsnorm_length", length);
 
     _llamaShader.Dispatch(_kernels.rmsNorm, 1, 1, 1);
@@ -617,27 +595,6 @@ public class Llama : MonoBehaviour {
       float[] qRow = new float[headSize];
       Array.Copy(qData, head * headSize, qRow, 0, headSize);
 
-      /*
-      float[] kData = new float[k.ElementCount<float>()];
-      k.GetData(kData);
-      float[][] kRows = new float[pos + 1][];
-      for (int p = 0; p <= pos; ++p) {
-        kRows[p] = new float[headSize];
-        Array.Copy(kData, head * headSize + p * _config.dim, kRows[p], 0, headSize);
-      }
-
-      float[] cpuAtt = new float[pos + 1];
-      for (int t = 0; t <= pos; ++t) {
-        float score = 0;
-        for (int i = 0; i < headSize; ++i) {
-          score += qRow[i] * kRows[t][i];
-        }
-
-        score *= 1.0f / Mathf.Sqrt(headSize);
-        cpuAtt[t] = score;
-      }
-      */
-
       float[] resultData = new float[att.ElementCount<float>()];
       att.GetData(resultData);
       string debugString = string.Join(", ", new ArraySegment<float>(resultData, head * _config.seq_len, 8));
@@ -646,8 +603,10 @@ public class Llama : MonoBehaviour {
   }
   
   private void Softmax(ComputeBuffer bufferInOut, int offset, int length) {
+    const int kSoftmaxStride = 8;
+    
     Profiler.BeginSample("softmax");
-
+    
     ComputeBuffer maxBuffer = _runState.scalarTemp0;
     ComputeBuffer sumBuffer = _runState.scalarTemp1;
     
@@ -655,7 +614,7 @@ public class Llama : MonoBehaviour {
     Profiler.BeginSample("softmax_findmax");
     FindMaxValue(bufferInOut, maxBuffer, offset, length);
     Profiler.EndSample();
-
+    
     // Next compute exponent and sum of exponents
     Profiler.BeginSample("softmax_exp");
     _llamaShader.SetBuffer(_kernels.softmaxExp, "softmax_input", bufferInOut);
@@ -664,11 +623,14 @@ public class Llama : MonoBehaviour {
     _llamaShader.SetBuffer(_kernels.softmaxExp, "softmax_sum_fixed", sumBuffer);
     _llamaShader.SetInt("softmax_offset", offset);
     _llamaShader.SetInt("softmax_length", length);
+
+    int numBatches = Mathf.CeilToInt(length / (float)kSoftmaxStride);
+    _llamaShader.SetInt("softmax_numBatches", numBatches);
     
     sumBuffer.SetData(new int[] { 0 });
 
-    int threadGroupsX = Mathf.CeilToInt(length / 256.0f);
-    _llamaShader.Dispatch(_kernels.softmaxExp, threadGroupsX, 1, 1);
+    int threadGroupsExp = Mathf.CeilToInt(numBatches / 256.0f);
+    _llamaShader.Dispatch(_kernels.softmaxExp, threadGroupsExp, 1, 1);
     Profiler.EndSample();
     
     // Finally, divide by sum to get softmax
@@ -679,12 +641,17 @@ public class Llama : MonoBehaviour {
     _llamaShader.SetInt("softmax_offset", offset);
     _llamaShader.SetInt("softmax_length", length);
     
-    _llamaShader.Dispatch(_kernels.softmaxDivide, threadGroupsX, 1, 1);
+    int threadGroupsDiv = Mathf.CeilToInt(length / 256.0f);
+    _llamaShader.Dispatch(_kernels.softmaxDivide, threadGroupsDiv, 1, 1);
     {Profiler.EndSample();}
 
     Profiler.EndSample();
 
     if (_Debug) {
+      int[] sumData = new int[1];
+      sumBuffer.GetData(sumData);
+      float sum = (float)sumData[0] / (256.0f * 256.0f);
+      
       float[] tempData = new float[_runState.softmaxTemp.ElementCount<float>()];
       _runState.softmaxTemp.GetData(tempData);
 
@@ -770,18 +737,12 @@ public class Llama : MonoBehaviour {
   }
 
   private void FindMaxIndex(ComputeBuffer sourceBuffer, ComputeBuffer resultBuffer, int inputLength) {
-    float[] checkInput = new float[inputLength];
-    sourceBuffer.GetData(checkInput);
-    
     _llamaShader.SetBuffer(_kernels.findMaxIdx, "findmaxidx_values", sourceBuffer);
     _llamaShader.SetBuffer(_kernels.findMaxIdx, "findmaxidx_output", resultBuffer);
     _llamaShader.SetInt("findmaxidx_length", inputLength);
     
     int threadGroupsX = Mathf.CeilToInt(inputLength / 256.0f);
     _llamaShader.Dispatch(_kernels.findMaxIdx, threadGroupsX, 1, 1);
-
-    int[] resultData = new int[1];
-    resultBuffer.GetData(resultData);
   }
 
   private void FindMaxValue(ComputeBuffer sourceBuffer, ComputeBuffer resultBuffer, int offset, int inputLength) {
@@ -838,16 +799,5 @@ public class Llama : MonoBehaviour {
 
     string debugString = string.Join(", ", new ArraySegment<float>(logits, 0, 256));
     Debug.Log($"Got output token {outputTokenString} with logits {debugString}");
-  }
-
-  public static RenderTexture CreateWeightsTexture(QuantizationModes mode, int rows, int columns) {
-    var format = QuantizationUtil.QuantizationFormats[mode];
-    RenderTextureFormat WeightsFormat = format;
-    return new RenderTexture(columns, rows, 0, WeightsFormat, RenderTextureReadWrite.Linear) {
-      enableRandomWrite = true,
-      filterMode = FilterMode.Point,
-      wrapMode = TextureWrapMode.Clamp,
-      useMipMap = false,
-    };
   }
 }

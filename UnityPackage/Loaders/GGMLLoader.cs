@@ -10,6 +10,7 @@ using Unity.Mathematics;
 using UnityEngine;
 
 public class GGMLLoader : ModelLoaderBase {
+  
   public static GGMLMetaData LoadMetadata(string path) {
     FileStream stream = new FileStream(path, FileMode.Open, FileAccess.Read);
     BinaryReader reader = new BinaryReader(stream);
@@ -24,8 +25,7 @@ public class GGMLLoader : ModelLoaderBase {
     return metaData;
   }
 
-  public static LlamaConfig CreateConfig(GGMLMetaData metaData, QuantizationModes weightsMode,
-    QuantizationModes runtimeMode) {
+  public static LlamaConfig CreateConfig(GGMLMetaData metaData) {
     // We don't currently support having different precisions for different weights (though we should!)
     // For now, just assume that the embedding weights are the precision we want for all weights.  In
     // the 16 bit models I've looked at, they are using fp32 for the normalization weights (why?) but we 
@@ -42,7 +42,7 @@ public class GGMLLoader : ModelLoaderBase {
     // that the context length can change with rope, but we might need to make some changes to support that.
     uint n_ctx = 512;
 
-    return new LlamaConfig(sourceMode, weightsMode, runtimeMode) {
+    return new LlamaConfig() {
       dim = (int)metaData.Hparams.NEmbed,
       hidden_dim = (int)n_ff,
       n_layers = (int)metaData.Hparams.NLayer,
@@ -53,52 +53,56 @@ public class GGMLLoader : ModelLoaderBase {
     };
   }
 
-  protected async override Task<(LlamaConfig, Weights, Tokenizer)> LoadModelImpl(
-    QuantizationModes weightQuantMode, QuantizationModes runtimeQuantMode) {
+  protected async override Task<(LlamaConfig, WeightsGpu, Tokenizer)> LoadModelImpl() {
     string path = ModelPath;
 
     long start = DateTime.Now.Ticks;
     var metaData = await Task.Run(() => { return LoadMetadata(path); });
 
     bool hasClassifierWeights = metaData.NamedTensors.ContainsKey("output.weight");
-    LlamaConfig config = CreateConfig(metaData, weightQuantMode, runtimeQuantMode);
-    Weights weights = new Weights(config, weightQuantMode, true);
+    LlamaConfig config = CreateConfig(metaData);
+    WeightsGpu weights = new WeightsGpu();
+    weights.layerWeights = new LayerWeightsGPU[config.n_layers];
 
-    using (var mmf = MemoryMappedFile.CreateFromFile(path, FileMode.Open))
-    using (var accessor = mmf.CreateViewAccessor(0, 0)) {
-      unsafe {
-        byte* fileStart = null;
-        accessor.SafeMemoryMappedViewHandle.AcquirePointer(ref fileStart);
-        try {
-          LoadIntoNativeArray(weights.token_embedding_table, metaData.NamedTensors["tok_embeddings.weight"], fileStart);
-          LoadIntoNativeArray(weights.rms_final_weight, metaData.NamedTensors["norm.weight"], fileStart);
-          if (hasClassifierWeights) {
-            LoadIntoNativeArray(weights.wcls, metaData.NamedTensors["output.weight"], fileStart);
+    unsafe {
+      var mmf = MemoryMappedFile.CreateFromFile(path, FileMode.Open, null, 0, MemoryMappedFileAccess.Read);
+      var accessor = mmf.CreateViewAccessor(0, 0, MemoryMappedFileAccess.Read);
+      byte* fileStart = null;
+      accessor.SafeMemoryMappedViewHandle.AcquirePointer(ref fileStart);
+      try {
+        weights.token_embedding_table = CreateAndLoadTensor(metaData.NamedTensors["tok_embeddings.weight"], fileStart);
+        weights.rms_final_weight = CreateAndLoadTensor(metaData.NamedTensors["norm.weight"], fileStart);
+        if (hasClassifierWeights) {
+          weights.wcls = CreateAndLoadTensor(metaData.NamedTensors["output.weight"], fileStart);
+        }
+
+        for (int l = 0; l < config.n_layers; ++l) {
+          GpuTensor loadLayerTensor(string tensorName) {
+            tensorName = string.Format(tensorName, l);
+            return CreateAndLoadTensor(metaData.NamedTensors[tensorName], fileStart);
           }
 
-          for (int l = 0; l < config.n_layers; ++l) {
-            void loadLw(NativeArray<byte> dest, string tensorName) {
-              tensorName = string.Format(tensorName, l);
-              LoadIntoNativeArray(dest, metaData.NamedTensors[tensorName], fileStart);
-            }
+          var lw = new LayerWeightsGPU();
+          lw.rms_att_weight = loadLayerTensor("layers.{0}.attention_norm.weight");
+          lw.rms_ffn_weight = loadLayerTensor("layers.{0}.ffn_norm.weight");
 
-            var lw = weights.layerWeights[l];
-            loadLw(lw.rms_att_weight, "layers.{0}.attention_norm.weight");
-            loadLw(lw.rms_ffn_weight, "layers.{0}.ffn_norm.weight");
+          lw.wq = loadLayerTensor("layers.{0}.attention.wq.weight");
+          lw.wk = loadLayerTensor("layers.{0}.attention.wk.weight");
+          lw.wv = loadLayerTensor("layers.{0}.attention.wv.weight");
+          lw.wo = loadLayerTensor("layers.{0}.attention.wo.weight");
 
-            loadLw(lw.wq, "layers.{0}.attention.wq.weight");
-            loadLw(lw.wk, "layers.{0}.attention.wk.weight");
-            loadLw(lw.wv, "layers.{0}.attention.wv.weight");
-            loadLw(lw.wo, "layers.{0}.attention.wo.weight");
-
-            loadLw(lw.w1, "layers.{0}.feed_forward.w1.weight");
-            loadLw(lw.w2, "layers.{0}.feed_forward.w2.weight");
-            loadLw(lw.w3, "layers.{0}.feed_forward.w3.weight");
-          }
+          lw.w1 = loadLayerTensor("layers.{0}.feed_forward.w1.weight");
+          lw.w2 = loadLayerTensor("layers.{0}.feed_forward.w2.weight");
+          lw.w3 = loadLayerTensor("layers.{0}.feed_forward.w3.weight");
+          weights.layerWeights[l] = lw;
         }
-        finally {
-          accessor.SafeMemoryMappedViewHandle.ReleasePointer();
-        }
+        
+        Debug.Log("All layers loaded successfully");
+      }
+      finally {
+        accessor.SafeMemoryMappedViewHandle.ReleasePointer();
+        accessor.Dispose();
+        mmf.Dispose();
       }
     }
 
@@ -109,7 +113,7 @@ public class GGMLLoader : ModelLoaderBase {
     const int eos = 2;
     Tokenizer tokenizer = new Tokenizer(metaData.Vocab.TokenToId, metaData.Vocab.IdToToken, metaData.Vocab.IdToScore,
       (int)metaData.Hparams.NVocab, sos, eos);
-
+    
     return (config, weights, tokenizer);
   }
 
@@ -134,6 +138,82 @@ public class GGMLLoader : ModelLoaderBase {
     }
 
     throw new Exception("Unknown magic number");
+  }
+
+  private unsafe GpuTensor CreateAndLoadTensor(TensorMeta tensorMeta, byte* fileStart) {
+    QuantizationModes quantMode;
+    switch (tensorMeta.Type) {
+      case GGMLType.F32:
+        quantMode = QuantizationModes.Float32;
+        break;
+      case GGMLType.F16:
+        quantMode = QuantizationModes.Float16;
+        break;
+      case GGMLType.Q8_0:
+        quantMode = QuantizationModes.Q8_0;
+        break;
+      default:
+        throw new ArgumentException("Unsupported tensorMeta type: " + tensorMeta.Type);
+    }
+
+    /*
+     TODO: Verify this
+    if (tensorMeta.Dimensions.Length == 1) {
+      if (rows != tensorMeta.Dimensions[0] || cols > 1) {
+        throw new ArgumentException($"tensorMeta size doesn't match: {rows}, {cols} != {tensorMeta.Dimensions}");
+      }
+    }
+    if (tensorMeta.Dimensions.Length == 2) {
+      if (rows != tensorMeta.Dimensions[0] || cols != tensorMeta.Dimensions[1]) {
+        throw new ArgumentException($"tensorMeta size doesn't match: {rows}, {cols} != {tensorMeta.Dimensions}");
+      }
+    }
+    else  {
+      throw new ArgumentException("tensorMetas of more than 2 dimensions not supported");
+    }
+    */
+    
+    int rows = tensorMeta.Dimensions[0];
+    int cols = tensorMeta.Dimensions.Length >= 2 ? tensorMeta.Dimensions[1] : 1; 
+    GpuTensor tensor = new GpuTensor(rows, cols, quantMode);
+
+    byte* tensorPtr = fileStart + tensorMeta.FileOffset;
+
+    if (tensor.Mode == QuantizationModes.Q8_0) {
+      // *sigh*, Q8_0 buffers have a stride of size 34 from the fact that they use a 'half' for scale.  ComputeBuffers
+      // don't allow strides that aren't divisible by 4, so we use a full float for scale.  That means though that we 
+      // have to convert the data at load time.
+      NativeArray<Q8_0Block> blockArray = new NativeArray<Q8_0Block>(tensor.BlockCount, Allocator.Temp);
+      ConvertQ8_0Buffer(tensorPtr, blockArray);
+      tensor.Buffer.SetData(blockArray);
+    }
+    else {
+      if (tensor.SizeBytes != tensorMeta.Size) { 
+        throw new ArgumentException($"Mismatched tensor size for {tensorMeta.Name} expected {tensorMeta.Size} but got {tensor.SizeBytes}");
+      }
+    
+      var sourceArray =
+        NativeArrayUnsafeUtility.ConvertExistingDataToNativeArray<byte>(tensorPtr, (int)tensor.SizeBytes, Allocator.None);
+
+      var safety = AtomicSafetyHandle.Create();
+      NativeArrayUnsafeUtility.SetAtomicSafetyHandle(ref sourceArray, safety);
+      
+      tensor.Buffer.SetData(sourceArray);
+    }
+
+    return tensor;
+  }
+
+  private unsafe void ConvertQ8_0Buffer(byte* tensorPtr, NativeArray<Q8_0Block> destArray) {
+    Q8_0Block* destPtr = (Q8_0Block*)NativeArrayUnsafeUtility.GetUnsafePtr(destArray);
+    int blockSize = QuantizationModes.Q8_0.BlockSize();
+    int sourceSize = GGMLType.Q8_0.GetTraits().TypeSize;
+    //for (int b = 0; b < destArray.Length; ++b) {
+    Parallel.For(0, destArray.Length, b => {
+      byte* sourceBlockPtr = tensorPtr + (b * sourceSize);
+      destPtr[b].scale = *(half*)sourceBlockPtr;
+      UnsafeUtility.MemCpy(destPtr[b].values, sourceBlockPtr + 2, blockSize);
+    });
   }
 
   private static Hparams ReadHParams(BinaryReader reader) {
@@ -212,38 +292,11 @@ public class GGMLLoader : ModelLoaderBase {
 
   private static long CalculateTensorSize(TensorMeta tensor) {
     var traits = tensor.Type.GetTraits();
-    int size = traits.TypeSize;
+    long size = traits.TypeSize;
     foreach (int dim in tensor.Dimensions) {
       size *= dim;
     }
 
     return size / traits.BlockSize;
   }
-  
-  private static unsafe void LoadIntoNativeArray(NativeArray<byte> array, TensorMeta tensor, byte* fileStart) {
-    if (tensor.Type == GGMLType.F16) {
-      byte* tensorPtr = fileStart + tensor.FileOffset;
-      if (array.Length != tensor.Size) {
-        Debug.LogError($"Mismatched tensor size for {tensor.Name} expected {tensor.Size} but got {array.Length}");
-        return;
-      }
-
-      UnsafeUtility.MemCpy(array.GetUnsafePtr(), tensorPtr, array.Length);
-    }
-    else if (tensor.Type == GGMLType.F32) {
-      {
-        half* arrayPtr = (half*)array.GetUnsafePtr();
-        float* tensorPtr = (float*)(fileStart + tensor.FileOffset);
-        Debug.Assert(array.Length == tensor.Size / 2);
-        int count = (int)(tensor.Size / sizeof(float));
-        for (int i = 0; i < count; ++i) {
-          arrayPtr[i] = (half)tensorPtr[i];
-        }
-      }
-    }
-    else {
-      Debug.LogError($"Can't load unknown tensor type: {tensor.Type}");
-    }
-  }
-
 }

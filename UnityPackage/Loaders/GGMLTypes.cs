@@ -1,6 +1,7 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Runtime.InteropServices;
 using UnityEngine;
 
 public class GGMLMetaData {
@@ -44,30 +45,29 @@ public struct TensorMeta
   public long FileOffset {get; set;}
 }
 
-public enum GGMLType 
-{
-  F32,
-  F16,
-  Q4_0,
-  Q4_1,
-  Q5_0, 
-  Q5_1,
-  Q8_0,
-  Q8_1,
+public enum GGMLType {
+  F32 = 0,
+  F16 = 1, 
+  Q4_0 = 2,
+  Q4_1 = 3,
+  Q5_0 = 6,
+  Q5_1 = 7,
+  Q8_0 = 8,
+  Q8_1 = 9,
   
   // k-quantizations
-  Q2_K,
-  Q3_K,  
-  Q4_K,
-  Q5_K,
-  Q6_K,
-  Q8_K,
-
-  I8,
-  I16,
-  I32,
+  Q2_K = 10,
+  Q3_K = 11,
+  Q4_K = 12,
+  Q5_K = 13,
+  Q6_K = 14,
+  Q8_K = 15,
   
-  Count
+  I8 = 16,
+  I16 = 17,
+  I32 = 18,
+  
+  Count = 19
 }
 
 public static class GGMLFileMagic {
@@ -108,6 +108,11 @@ public enum GGMLFileType
   MostlyQ6_K // except 1d tensors
 }
 
+public unsafe struct Q8_0Block {
+  public float scale;
+  public fixed sbyte values[32];
+} 
+
 public class GGMLTraitType 
 {
   public string TypeName ;
@@ -131,7 +136,6 @@ public class GGMLTraitType
     TypeSize = 4,
     IsQuantized = false,
     QuantizationMode = QuantizationModes.Float32,
-    // Populate methods
   };
 
   public static readonly GGMLTraitType F16 = new GGMLTraitType
@@ -141,13 +145,22 @@ public class GGMLTraitType
     TypeSize = 2,
     IsQuantized = false,
     QuantizationMode = QuantizationModes.Float16,
-    // Populate methods
+  };
+  
+  public static readonly GGMLTraitType Q8_0 = new GGMLTraitType
+  {
+    TypeName = "q8_0",
+    BlockSize = 32,
+    TypeSize = 34,  // 32 byte values + 2 for half scale (note this is different that our runtime type)
+    IsQuantized = true,
+    QuantizationMode = QuantizationModes.Q8_0,
   };
 
   public static readonly Dictionary<GGMLType, GGMLTraitType> Traits = new Dictionary<GGMLType, GGMLTraitType>()
   {
     {GGMLType.F32, F32},
     {GGMLType.F16, F16},
+    { GGMLType.Q8_0, Q8_0},
   };
 }
 

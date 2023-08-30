@@ -1,41 +1,38 @@
 using System;
-using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 using System.Text;
 using System.Threading.Tasks;
 using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
-using Unity.VisualScripting.YamlDotNet.Core.Tokens;
 using UnityEngine;
 using UnityEngine.Profiling;
 
 public class KarpathyLoader : ModelLoaderBase {
   public string VocabPath;
   public LlamaConfig Config;
-  public Weights Weights;
+  public QuantizationModes QuantMode;
 
+  // We can eventually use fences to dump this intelligently, instead we just clear it out when we're done.
+  private List<IDisposable> _garbage = new List<IDisposable>();
 
-  protected async override Task<(LlamaConfig, Weights, Tokenizer)> LoadModelImpl(
-    QuantizationModes weightQuantMode, QuantizationModes runtimeQuantMode) {
+  protected async override Task<(LlamaConfig, WeightsGpu, Tokenizer)> LoadModelImpl() {
     if (!File.Exists(ModelPath)) {
       ModelPath = Path.Combine(Application.streamingAssetsPath, "models", ModelPath);
     }
 
     // Karpathy's format only uses float32
-    const QuantizationModes sourceMode = QuantizationModes.Float32;
-
     float startTime = Time.realtimeSinceStartup;
     Debug.Log("Loading weights...");
     try {
       Profiler.BeginSample("LoadWeights");
       LlamaConfig config = null;
-      Weights weights = null;
+      WeightsGpu weights = null;
 
       using (FileStream fs = new FileStream(ModelPath, FileMode.Open, FileAccess.Read))
       using (BinaryReader br = new BinaryReader(fs)) {
         // Read the config
-        config = new LlamaConfig(sourceMode, weightQuantMode, runtimeQuantMode) {
+        config = new LlamaConfig() {
           dim = br.ReadInt32(),
           hidden_dim = br.ReadInt32(),
           n_layers = br.ReadInt32(),
@@ -50,58 +47,78 @@ public class KarpathyLoader : ModelLoaderBase {
         bool hasClassifierWeights = false;
 
         // Initialize weights
-        weights = new Weights(config, QuantizationModes.Float32, hasClassifierWeights);
+        weights = new WeightsGpu() {
+          token_embedding_table = new GpuTensor(config.vocab_size, config.dim, QuantMode),
+          rms_final_weight = new GpuTensor(config.dim, 1, QuantMode),
+          layerWeights = new LayerWeightsGPU[config.n_layers],
+        };
+
+        for (int layer = 0; layer < config.n_layers; layer++) {
+          weights.layerWeights[layer] = new LayerWeightsGPU() {
+            rms_att_weight = new GpuTensor(config.dim, 1, QuantMode),
+            rms_ffn_weight = new GpuTensor(config.dim, 1, QuantMode),
+
+            wq = new GpuTensor(config.dim, config.dim, QuantMode),
+            wk = new GpuTensor(config.dim, config.dim, QuantMode),
+            wv = new GpuTensor(config.dim, config.dim, QuantMode),
+            wo = new GpuTensor(config.dim, config.dim, QuantMode),
+
+            w1 = new GpuTensor(config.hidden_dim, config.dim, QuantMode),
+            w2 = new GpuTensor(config.dim, config.hidden_dim, QuantMode),
+            w3 = new GpuTensor(config.hidden_dim, config.dim, QuantMode),
+          };
+        }
 
         // Read token_embedding_table
-        ReadNativeArray(br, weights.token_embedding_table);
-
+        ReadTensor(br, weights.token_embedding_table);
+        
         // Read rms_att_weight for all layers
         for (int layer = 0; layer < config.n_layers; layer++) {
-          ReadNativeArray(br, weights.layerWeights[layer].rms_att_weight);
+          ReadTensor(br, weights.layerWeights[layer].rms_att_weight);
         }
 
         // Read wq for all layers
         for (int layer = 0; layer < config.n_layers; layer++) {
-          ReadNativeArray(br, weights.layerWeights[layer].wq);
+          ReadTensor(br, weights.layerWeights[layer].wq);
         }
 
         // Read wk for all layers
         for (int layer = 0; layer < config.n_layers; layer++) {
-          ReadNativeArray(br, weights.layerWeights[layer].wk);
+          ReadTensor(br, weights.layerWeights[layer].wk);
         }
 
         // Read wv for all layers
         for (int layer = 0; layer < config.n_layers; layer++) {
-          ReadNativeArray(br, weights.layerWeights[layer].wv);
+          ReadTensor(br, weights.layerWeights[layer].wv);
         }
 
         // Read wo for all layers
         for (int layer = 0; layer < config.n_layers; layer++) {
-          ReadNativeArray(br, weights.layerWeights[layer].wo);
+          ReadTensor(br, weights.layerWeights[layer].wo);
         }
 
         // Read rms_ffn_weight for all layers
         for (int layer = 0; layer < config.n_layers; layer++) {
-          ReadNativeArray(br, weights.layerWeights[layer].rms_ffn_weight);
+          ReadTensor(br, weights.layerWeights[layer].rms_ffn_weight);
         }
 
         // Read w1 for all layers
         for (int layer = 0; layer < config.n_layers; layer++) {
-          ReadNativeArray(br, weights.layerWeights[layer].w1);
+          ReadTensor(br, weights.layerWeights[layer].w1);
         }
 
         // Read w2 for all layers
         for (int layer = 0; layer < config.n_layers; layer++) {
-          ReadNativeArray(br, weights.layerWeights[layer].w2);
+          ReadTensor(br, weights.layerWeights[layer].w2);
         }
 
         // Read w3 for all layers
         for (int layer = 0; layer < config.n_layers; layer++) {
-          ReadNativeArray(br, weights.layerWeights[layer].w3);
+          ReadTensor(br, weights.layerWeights[layer].w3);
         }
 
         // Read remaining weights
-        ReadNativeArray(br, weights.rms_final_weight);
+        ReadTensor(br, weights.rms_final_weight);
 
         // Skip over weights formerly associated with freq_cis_real and freq_cis_imag
         int freqWeightsSize = config.seq_len * config.head_size * sizeof(float);
@@ -109,7 +126,7 @@ public class KarpathyLoader : ModelLoaderBase {
 
         // Read wcls
         if (hasClassifierWeights) {
-          ReadNativeArray(br, weights.wcls);
+          ReadTensor(br, weights.wcls);
         }
       }
       
@@ -123,23 +140,50 @@ public class KarpathyLoader : ModelLoaderBase {
       return (null, null, null); // Failed to load
     }
     finally {
+      foreach (IDisposable disposable in _garbage) {
+        disposable.Dispose();
+      }
+      _garbage.Clear();
       Profiler.EndSample();
     }
   }
 
-  private void ReadNativeArray(BinaryReader br, NativeArray<byte> byteArray) {
-    NativeArray<float> array = byteArray.Reinterpret<float>(sizeof(byte));
-    int byteCount = array.Length * sizeof(float);
-    byte[] buffer = br.ReadBytes(byteCount);
+  private void ReadTensor(BinaryReader br, GpuTensor tensor) {
+    int sourceSizeBytes = (int)tensor.Size * sizeof(float);
+    NativeArray<byte> sourceArray = new NativeArray<byte>(sourceSizeBytes, Allocator.Persistent);
+    byte[] buffer = br.ReadBytes(sourceSizeBytes);
 
-    // Get a pointer to the NativeArray's data
     unsafe {
       fixed (byte* pBuffer = &buffer[0]) {
-        UnsafeUtility.MemCpy(NativeArrayUnsafeUtility.GetUnsafePtr(array), pBuffer, byteCount);
+        UnsafeUtility.MemCpy(NativeArrayUnsafeUtility.GetUnsafePtr(sourceArray), pBuffer, sourceSizeBytes);
       }
     }
+
+    ComputeUtils.Quantize(QuantizationModes.Float32, tensor.Mode, sourceArray, tensor.Buffer);
+    
+    /*
+    if (QuantMode == QuantizationModes.Q8_0) {
+      ComputeBuffer checkWeightsBuffer = ComputeUtils.CreateVectorizedBuffer(tensor.Size, QuantizationModes.Float32);
+      ComputeUtils.Dequantize(QuantMode, QuantizationModes.Float32,
+        tensor.Buffer, checkWeightsBuffer);
+      float[] checkWeightsData = new float[checkWeightsBuffer.ElementCount<float>()];
+      checkWeightsBuffer.GetData(checkWeightsData);
+      NativeArray<float> sourceArrayFloat = sourceArray.Reinterpret<float>(1);
+      float maxError = 0;
+      float avgError = 0;
+      for (int i = 0; i < checkWeightsData.Length; ++i) {
+        float error = Mathf.Abs(sourceArrayFloat[i] - checkWeightsData[i]);
+        maxError = Mathf.Max(maxError, error);
+        avgError += error;
+      }
+
+      avgError /= checkWeightsData.Length;
+    }
+    */
+
+    _garbage.Add(sourceArray);
   }
-  
+
   public void LoadTokenizer(int vocabSize) {
     string fullPath = VocabPath;
     if (!File.Exists(fullPath)) {

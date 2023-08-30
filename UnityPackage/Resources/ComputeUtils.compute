@@ -1,42 +1,120 @@
-#pragma multi_compile QUANT_SOURCE_32 QUANT_SOURCE_16
-#pragma multi_compile QUANT_DEST_32 QUANT_DEST_16
+#pragma multi_compile QUANT_SOURCE_32 QUANT_SOURCE_16 QUANT_SOURCE_Q8_0
+#pragma multi_compile QUANT_DEST_32 QUANT_DEST_16 QUANT_DEST_Q8_0
 
 #include "Common.cginc"
 
 #if QUANT_SOURCE_16
-    #define SOURCE_TYPE_VEC uint2
-    #define StoreSource StoreVec16f
-    #define LoadSource LoadVec16f
+    #define SOURCE_BLOCK_TYPE uint2
+    #define STORE_SOURCE StoreVec16f
+    #define LOAD_SOURCE LoadVec16f
+    #define SOURCE_IS_QUANTIZED 0
+#elif QUANT_SOURCE_Q8_0
+    #define SOURCE_BLOCK_VEC 8
+    #define SOURCE_BLOCK_TYPE Q8_0_Block
+    #define ENCODE_SOURCE Encode_Q8_0
+    #define DECODE_SOURCE Decode_Q8_0
+    #define SOURCE_IS_QUANTIZED 1
 #else /* QUANT_SOURCE_32 */
-    #define SOURCE_TYPE_VEC float4
-    #define StoreSource StoreVec32f
-    #define LoadSource LoadVec32f
+    #define SOURCE_BLOCK_TYPE float4
+    #define STORE_SOURCE StoreVec32f
+    #define LOAD_SOURCE LoadVec32f
+    #define SOURCE_IS_QUANTIZED 0
 #endif
 
 #if QUANT_DEST_16
-    #define DEST_TYPE_VEC uint2
-    #define StoreDest StoreVec16f
-    #define LoadDest LoadVec16f
-#else  /* QUANT_DEST_32 */
-    #define DEST_TYPE_VEC float4
-    #define StoreDest StoreVec32f
-    #define LoadDest LoadVec32f
+    #define DEST_BLOCK_TYPE uint2
+    #define STORE_DEST StoreVec16f
+    #define LOAD_DEST LoadVec16f
+    #define DEST_IS_QUANTIZED 0
+#elif QUANT_DEST_Q8_0
+    #define DEST_BLOCK_VEC 8
+    #define DEST_BLOCK_TYPE Q8_0_Block
+    #define ENCODE_DEST Encode_Q8_0
+    #define DECODE_DEST Decode_Q8_0
+    #define DEST_IS_QUANTIZED 1
+#else /* QUANT_DEST_32 */
+    #define DEST_BLOCK_TYPE float4
+    #define STORE_DEST StoreVec32f
+    #define LOAD_DEST LoadVec32f
+    #define DEST_IS_QUANTIZED 0
 #endif
 
-#pragma kernel SetQuantizedData
+#pragma kernel Quantize
 
-StructuredBuffer<SOURCE_TYPE_VEC> setquant_input;
-RWStructuredBuffer<DEST_TYPE_VEC> setquant_output;
-uint setquant_veclen;
-uint setquant_offset;
+StructuredBuffer<SOURCE_BLOCK_TYPE> quantize_input;
+RWStructuredBuffer<DEST_BLOCK_TYPE> quantize_output;
+uint quantize_numBlocks;
+uint quantize_offset;
 
 [numthreads(1024, 1, 1)]
-void SetQuantizedData(uint3 id : SV_DispatchThreadID)
+void Quantize(uint3 id : SV_DispatchThreadID)
 {
-    uint i = id.x;
-    if (i >= setquant_veclen)
+#if !SOURCE_IS_QUANTIZED
+    if (id.x >= quantize_numBlocks)
         return;
 
-    float4 source = LoadSource(setquant_input[i + setquant_offset]);
-    setquant_output[i + setquant_offset] = StoreDest(source);
+#if DEST_IS_QUANTIZED
+    uint destIndex = quantize_offset + id.x;
+    DEST_BLOCK_TYPE block;
+    int sourceIndex = destIndex * DEST_BLOCK_VEC;
+
+    float scale = 0;
+
+    // First compute scale for this block.
+    int valueIndex;
+    for (valueIndex = 0; valueIndex < DEST_BLOCK_VEC; ++valueIndex)
+    {
+        float4 source = LOAD_SOURCE(quantize_input[sourceIndex + valueIndex]);
+        source = abs(source);
+        scale = max(scale, max(max(source.x, source.y), max(source.z, source.w)));
+    }
+
+    scale /= 127.0f;
+    block.scale = scale;
+
+    // Now encode values with the given scale
+    [unroll]
+    for (valueIndex = 0; valueIndex < DEST_BLOCK_VEC; ++valueIndex)
+    {
+        float4 source = LOAD_SOURCE(quantize_input[sourceIndex + valueIndex]);
+        block.values[valueIndex] = ENCODE_DEST(source, scale);
+    }
+    quantize_output[destIndex] = block;
+#else
+    uint index = id.x + quantize_offset;
+    float4 source = LOAD_SOURCE(quantize_input[index]);
+    DEST_BLOCK_TYPE dest = STORE_DEST(source);
+    quantize_output[index] = dest;
+#endif
+#endif
+}
+
+#pragma kernel Dequantize
+
+StructuredBuffer<SOURCE_BLOCK_TYPE> dequantize_input;
+RWStructuredBuffer<DEST_BLOCK_TYPE> dequantize_output;
+uint dequantize_numBlocks;
+uint dequantize_offset;
+
+[numthreads(1024, 1, 1)]
+void Dequantize(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= dequantize_numBlocks)
+        return;
+
+#if SOURCE_IS_QUANTIZED
+    uint sourceIndex = quantize_offset + id.x;
+    SOURCE_BLOCK_TYPE block = dequantize_input[sourceIndex];
+    int destIndex = sourceIndex * SOURCE_BLOCK_VEC;
+
+    const float scale = block.scale;
+
+    [unroll]
+    for (uint valueIndex = 0; valueIndex < SOURCE_BLOCK_VEC; ++valueIndex)
+    {
+        const uint source = block.values[valueIndex];
+        float4 v = DECODE_SOURCE(source, scale);
+        dequantize_output[destIndex + valueIndex] = STORE_DEST(v);
+    }
+#endif
 }

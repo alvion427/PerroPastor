@@ -55,7 +55,7 @@ class GpuStateDebugger {
         Debug.Log("Done!");
     }
 
-    public void ProcessState(string name, ComputeBuffer buffer, float warningTolerance = 0.001f) {
+    public void ProcessState(string name, ComputeBuffer buffer, float warningTolerance = 0.01f) {
         float[] data = new float[buffer.ElementCount<float>()];
         buffer.GetData(data);
 
@@ -65,10 +65,11 @@ class GpuStateDebugger {
             Debug.Log("Added state " + name);
         }
         else {
+            float[] savedState = SavedStates[name];
             float totalError = 0;
             float maxError = 0;
             for (int i = 0; i < data.Length; ++i) {
-                float error = Mathf.Abs(data[i] - SavedStates[name][i]);
+                float error = Mathf.Abs(data[i] - savedState[i]);
                 totalError += error;
                 maxError = Mathf.Max(maxError, error);
             }

@@ -6,8 +6,7 @@ public class GGMLTest : MonoBehaviour {
 
   void Start() {
     var metadata = GGMLLoader.LoadMetadata(Path);
-    Config = GGMLLoader.CreateConfig(metadata,
-      QuantizationModes.Float16, QuantizationModes.Float32);
+    Config = GGMLLoader.CreateConfig(metadata);
     Debug.Log($"GGML model {Path}:\n{Config}");
   }
 }

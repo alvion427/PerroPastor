@@ -7,16 +7,16 @@ using UnityEngine;
 
 public abstract class ModelLoaderBase : MonoBehaviour {
   public string ModelPath;
-  public Action<LlamaConfig, Weights, Tokenizer> OnLoaded;
+  public Action<LlamaConfig, WeightsGpu, Tokenizer> OnLoaded;
   
   public Tokenizer Tokenizer { get; protected set; }
 
   public bool IsLoaded { get; private set; }
-  private Task<(LlamaConfig, Weights, Tokenizer)> _task;
+  private Task<(LlamaConfig, WeightsGpu, Tokenizer)> _task;
   
-  public void RequestLoad(QuantizationModes weightQuantMode, QuantizationModes runtimeQuantMode) {
+  public void RequestLoad() {
     Debug.Assert(!IsLoaded && _task == null);
-    _task = LoadModelImpl(weightQuantMode, runtimeQuantMode);
+    _task = LoadModelImpl();
   }
 
   void Update() {
@@ -30,5 +30,5 @@ public abstract class ModelLoaderBase : MonoBehaviour {
     }
   }
 
-  protected abstract Task<(LlamaConfig, Weights, Tokenizer)> LoadModelImpl(QuantizationModes weightQuantMode, QuantizationModes runtimeQuantMode);
+  protected abstract Task<(LlamaConfig, WeightsGpu, Tokenizer)> LoadModelImpl();
 }
