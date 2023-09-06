@@ -18,6 +18,31 @@ public class LlamaConfig {
   public int seq_len; // Max sequence length
 
   public int head_size => dim / n_heads;
+
+  public override int GetHashCode()
+  {
+    return dim.GetHashCode() ^ 
+           hidden_dim.GetHashCode() ^ 
+           n_layers.GetHashCode() ^ 
+           n_heads.GetHashCode() ^ 
+           n_kv_heads.GetHashCode() ^ 
+           vocab_size.GetHashCode() ^ 
+           seq_len.GetHashCode();
+  }
+  
+  public override bool Equals(object obj) {
+    if (obj is LlamaConfig other) {
+      return dim == other.dim &&
+             hidden_dim == other.hidden_dim &&
+             n_layers == other.n_layers &&
+             n_heads == other.n_heads &&
+             n_kv_heads == other.n_kv_heads &&
+             vocab_size == other.vocab_size &&
+             seq_len == other.seq_len;
+    }
+
+    return false;
+  }
 }
 
 public class GpuTensor : IDisposable {

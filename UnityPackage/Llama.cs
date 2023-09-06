@@ -88,10 +88,11 @@ public class Llama : MonoBehaviour {
       
         bool isFinalToken = c._tokensToRun == 1;
 
-        if (c._pos < c._queryTokens.Count) {
-          int queryToken = c._queryTokens[c._pos];
+        if (c._pos < c._resultTokens.Count) {
+          // This is still part of the prompt, so we already know the token result
+          int queryToken = c._resultTokens[c._pos];
           c._outputToken.SetData(new int[] { queryToken });
-          c.ProduceToken(queryToken, isFinalToken);
+          c.ProduceToken(c._pos, queryToken, isFinalToken);
         }
         else {
           if (c.Temperature == 0) {
@@ -102,7 +103,8 @@ public class Llama : MonoBehaviour {
             Softmax(_runState.logits, 0, _config.vocab_size);
             SampleLogits(c._outputToken, (float)_rng.NextDouble());
           }
-        
+
+          int pos = c._pos;
           AsyncGPUReadback.Request(c._outputToken, (request) => {
             if (c._sequenceComplete) {
               return;
@@ -122,7 +124,7 @@ public class Llama : MonoBehaviour {
               return;
             }
 
-            c.ProduceToken(token, isFinalToken);
+            c.ProduceToken(pos, token, isFinalToken);
           });
         }
 
@@ -133,7 +135,7 @@ public class Llama : MonoBehaviour {
     }
   }
 
-  private void SequenceComplete(Conversation conversation) {
+  internal void SequenceComplete(Conversation conversation) {
     _gpuStateDebugger?.TraceFinished();
     conversation.SequenceComplete();
   }
@@ -155,7 +157,7 @@ public class Llama : MonoBehaviour {
     
     // The first step is to load the embedding for the current token.  This is just a simple lookup into the
     // embedding table of the last generated token (or the start of sequence token when we begin).
-    LoadEmbedding(_runState.x, conversation._outputToken);
+    LoadEmbedding(_runState.x, conversation._outputToken, conversation._pos);
     _gpuStateDebugger?.ProcessState($"token{pos}_load_embedding", _runState.x);
 
     // We process each layer more or less independently, and the results of each layer feed into the next layer.
@@ -393,7 +395,7 @@ public class Llama : MonoBehaviour {
     Profiler.EndSample();
   }
 
-  private void LoadEmbedding(ComputeBuffer embedding, ComputeBuffer token) {
+  private void LoadEmbedding(ComputeBuffer embedding, ComputeBuffer token, int pos) {
     Profiler.BeginSample("loadEmbedding");
 
     int blockCount = _config.dim / _weightsGpu.token_embedding_table.BlockSize;
@@ -410,16 +412,8 @@ public class Llama : MonoBehaviour {
 
     Profiler.EndSample();
 
-    if (_Debug) {
-      float[] dequantizedData = null;
-      if (_weightsGpu.token_embedding_table.Mode == QuantizationModes.Q8_0) {
-        dequantizedData = QuantizationUtil.DequantizeCpu(_weightsGpu.token_embedding_table.Buffer, _weightsGpu.token_embedding_table.Mode);
-      }
-      else {
-        dequantizedData = new float[_weightsGpu.token_embedding_table.Buffer.count * 4];
-        _weightsGpu.token_embedding_table.Buffer.GetData(dequantizedData);
-      }
-      
+    //if (_Debug) {
+    if (pos == 8) {
       int[] tokenData = new int[token.ElementCount<int>()];
       token.GetData(tokenData);
 

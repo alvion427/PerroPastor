@@ -226,7 +226,7 @@ GameObject:
   - component: {fileID: 202027540}
   - component: {fileID: 202027539}
   m_Layer: 5
-  m_Name: Text
+  m_Name: TextInput
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
@@ -1025,6 +1025,7 @@ GameObject:
   m_Component:
   - component: {fileID: 899516567}
   - component: {fileID: 899516566}
+  - component: {fileID: 899516568}
   m_Layer: 0
   m_Name: Conversation
   m_TagString: Untagged
@@ -1045,23 +1046,48 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   Llama: {fileID: 606020842}
-  Query: 'This is a conversation between a customer and a fun loving chef named Luigi. 
-    Luigi is a pizza chef in his restaurant The Pie Palace in Brooklyn, NY, and the
-    customer has just walked in the door.
+  Prompt: 'This is a conversation between a customer and a fun loving chef named
+    Luigi.  Luigi is a pizza chef in his restaurant The Pie Palace in Brooklyn, NY. 
+    He is very proud of his Italian heritage, and loves everything about Italy and
+    Pizza.
 
     
 
-    Each time the customer says
-    something to luigi, his reply follows just after.
+    A customer has just walked in the door, and begins speaking
+    with Luigi.  Each time the customer says something to luigi, his reply follows
+    just after.
 
     
 
-    <customer>: Hi
-    luigi! How are you?
+    Here is an example:
+
+    
+
+    <customer>: Do you
+    have any pepperoni pizza?
+
+    <luigi>: You bet I have pepperoni pizza!  I always
+    have pepperoni for you!
+
+    <customer>: Great, then I''ll take one slice of
+    pepperoni pizza to go please.
+
+    <luigi>: Bellissimo!  Coming right up!
+
+    
+
+    Now,
+    the conversation begins:
+
+    
+
+    <customer>: Hi luigi! How are you?
 
     <luigi>:'
-  Temperature: 0.9
+  Temperature: 0.5
   RunOnStart: 255
+  TerminationSequence: '<customer>:'
+  UsePromptCache: 1
 --- !u!4 &899516567
 Transform:
   m_ObjectHideFlags: 0
@@ -1077,6 +1103,21 @@ Transform:
   m_Father: {fileID: 0}
   m_RootOrder: 2
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &899516568
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 899516565}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 67472cf6de68ba7408a1ff3f0648ff1a, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  Conversation: {fileID: 899516566}
+  TextOutput: {fileID: 1678145045}
+  TextInput: {fileID: 202027539}
 --- !u!1 &981623921
 GameObject:
   m_ObjectHideFlags: 0
@@ -1374,9 +1415,8 @@ GameObject:
   - component: {fileID: 1678145046}
   - component: {fileID: 1678145045}
   - component: {fileID: 1678145047}
-  - component: {fileID: 1678145048}
   m_Layer: 5
-  m_Name: LlamaOutput
+  m_Name: TextOutput
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
@@ -1513,20 +1553,6 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   m_HorizontalFit: 0
   m_VerticalFit: 2
---- !u!114 &1678145048
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1678145043}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: fea21457f699b304dae253ce34dba372, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
-  Conversation: {fileID: 899516566}
-  Text: {fileID: 1678145045}
 --- !u!1 &1779662804
 GameObject:
   m_ObjectHideFlags: 0
@@ -1745,7 +1771,19 @@ MonoBehaviour:
   m_TargetGraphic: {fileID: 1996914179}
   m_OnClick:
     m_PersistentCalls:
-      m_Calls: []
+      m_Calls:
+      - m_Target: {fileID: 0}
+        m_TargetAssemblyTypeName: 
+        m_MethodName: 
+        m_Mode: 1
+        m_Arguments:
+          m_ObjectArgument: {fileID: 0}
+          m_ObjectArgumentAssemblyTypeName: 
+          m_IntArgument: 0
+          m_FloatArgument: 0
+          m_StringArgument: 
+          m_BoolArgument: 0
+        m_CallState: 2
 --- !u!114 &1996914179
 MonoBehaviour:
   m_ObjectHideFlags: 0
