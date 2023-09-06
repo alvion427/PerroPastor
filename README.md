@@ -12,7 +12,7 @@ I also intend this repo to be a good opportunity to learn how LLMs work.  Althou
 * Run the scene!
 * Try entering different prompts in the Llama.Prompt field (they shold be the first few words of a story)
 * Check out the [RunTransformer](https://github.com/alvion427/PerroPastor/blob/master/UnityPackage/Llama.cs#L168) function for lots of comments explaining in detail what is going on.
-* To run other models, you should be able to run any ggml compatible models in fp32, fp16, or q8_0.  Q8_0 is definitely the preference as far as performance goes (I get 3-4 tokens per second on my xps15 with RTX 3050 and 4 gigs of vram).
+* To run other models, you should be able to run any ggml compatible models in fp32, fp16, or q8_0, or q5_1.  Q5_1 is definitely the preference as far as performance goes (I get 10+ tokens per second on my xps15 with RTX 3050 and 4 gigs of vram).
 
 # Thank you Andrej Karpathy!!!
 This project was inspired by Andrej Karpathy's excellent [llama2.c project](https://github.com/karpathy/llama2.c), and owes a huge dept to Andrej and all of his work he has done over the years to support LLM literacy.  I find it so much easier to learn how something REALLY works when it is written in a simple language with no dependencies, rather than trying to peer through all the abstractions of higher level libraries like PyTorch.  You will see that lots of the naming and overall code flow still owes a great deal to llama2.c, although things have already started to diverge quite a bit, and will diverge a lot more in the next few weeks as I make things a bit more conducive to real-time game execution.
@@ -20,7 +20,7 @@ This project was inspired by Andrej Karpathy's excellent [llama2.c project](http
 If you are new to LLMs, I HIGHLY recommend his [LLM Zero to Hero](https://youtu.be/VMj-3S1tku0) series on youtube, and especially the [Building ChatGPT from Scratch](https://youtu.be/kCc8FmEb1nY) video.  If you already know c and aren't very familiar with compute shaders, you may find it easier to read through his llama2.c project first.
 
 # TODO
-* Support a few more ggml quantization formats (right now just fp16 and q8_0).
+* Support a few more ggml quantization formats (q4_1 and q5_m/s are the highest priority).
 * LOTS of easy optimizations in the existing kernels.
 * Add topk filtering.
 * Fuse compute kernels to reduce draw calls and intermediate memory usage.
