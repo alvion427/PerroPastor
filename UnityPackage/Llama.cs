@@ -1,30 +1,23 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using TMPro;
 using UnityEngine;
 using UnityEngine.Profiling;
 using UnityEngine.Rendering;
 
 public class Llama : MonoBehaviour {
-  public string Query = "";
-  public float Temperature = 0.9f;
   public int RandomSeed = -1; // -1 means use time
-  public int RunOnStart = 0;
 
+  public Tokenizer Tokenizer => _tokenizer;
+  public LlamaConfig Config => _config;
   public QuantizationModes RuntimeQuantizationMode = QuantizationModes.Float32;
   public ModelLoaderBase ModelLoader;
   private ComputeShader _llamaShader;
 
   public int MaxTokensPerFrame = 1;
 
-  public Action<string> OnNewToken;
-  public Action<string> OnSequenceComplete;
-
-  private int _pos = 0;
-  private int _tokensToRun = 0;
-  private bool _sequenceComplete = false;
-  public List<int> QueryTokens = new List<int>();
-  public List<int> ResultTokens = new List<int>();
+  private List<Conversation> _conversations = new List<Conversation>();
 
   public string SaveTrace;
   public string CheckTrace;
@@ -33,11 +26,10 @@ public class Llama : MonoBehaviour {
   private LlamaConfig _config;
   private WeightsGpu _weightsGpu;
   private RunState _runState;
-  private PersistentState _persistentState;
   private System.Random _rng;
   private GpuStateDebugger _gpuStateDebugger;
   private LlamaKernels _kernels;
-  public Tokenizer _tokenizer; 
+  private Tokenizer _tokenizer; 
 
   public bool _Debug = false;
 
@@ -66,10 +58,6 @@ public class Llama : MonoBehaviour {
       _tokenizer = tokenizer;
       
       Initialize();
-
-      if (RunOnStart > 0) {
-        RunTokens(RunOnStart);
-      }
     };
       
     ModelLoader.RequestLoad();
@@ -81,19 +69,8 @@ public class Llama : MonoBehaviour {
     }
   }
 
-  public void RunTokens(int numTokens) {
-    _tokensToRun = numTokens;
-    _sequenceComplete = false;
-    ResultTokens = new List<int>();
-    
-    if (Query.Length > 0) {
-      var tokenizedQuery = _tokenizer.Tokenize(Query);
-      QueryTokens = tokenizedQuery.ToList();
-      tokenizedQuery.Dispose();
-    }
-
-    // Put start of sequence token in last token buffer.
-    _runState.outputToken.SetData(new int[] { _tokenizer.SOS });
+  public void StartConversation(Conversation conversation) {
+    _conversations.Add(conversation);
   }
 
   void Update() {
@@ -101,78 +78,64 @@ public class Llama : MonoBehaviour {
       return;
     }
     
-    int tokensProcessedThisFrame = 0;
-    while (!_sequenceComplete && _tokensToRun > 0 && tokensProcessedThisFrame < MaxTokensPerFrame) {
-      ++tokensProcessedThisFrame;
+    foreach (Conversation c in _conversations)
+    {
+      int tokensProcessedThisFrame = 0;
+      while (!c._sequenceComplete && c._tokensToRun > 0 && tokensProcessedThisFrame < MaxTokensPerFrame) {
+        ++tokensProcessedThisFrame;
 
-      RunTransformer(_pos);
+        RunTransformer(c);
       
-      bool isFinalToken = _tokensToRun == 1;
+        bool isFinalToken = c._tokensToRun == 1;
 
-      if (_pos < QueryTokens.Count) {
-        int queryToken = QueryTokens[_pos];
-        _runState.outputToken.SetData(new int[] { queryToken });
-        ProduceToken(queryToken, isFinalToken);
-      }
-      else {
-        if (Temperature == 0) {
-          FindMaxIndex(_runState.logits, _runState.outputToken, _config.vocab_size);
+        if (c._pos < c._queryTokens.Count) {
+          int queryToken = c._queryTokens[c._pos];
+          c._outputToken.SetData(new int[] { queryToken });
+          c.ProduceToken(queryToken, isFinalToken);
         }
         else {
-          ScaleBuffer(_runState.logits, 1.0f / Temperature, _config.vocab_size);
-          Softmax(_runState.logits, 0, _config.vocab_size);
-          SampleLogits(_runState.logits, (float)_rng.NextDouble());
-        }
+          if (c.Temperature == 0) {
+            FindMaxIndex(_runState.logits, c._outputToken, _config.vocab_size);
+          }
+          else {
+            ScaleBuffer(_runState.logits, 1.0f / c.Temperature, _config.vocab_size);
+            Softmax(_runState.logits, 0, _config.vocab_size);
+            SampleLogits(c._outputToken, (float)_rng.NextDouble());
+          }
         
-        AsyncGPUReadback.Request(_runState.outputToken, (request) => {
-          if (_sequenceComplete) {
-            return;
-          }
+          AsyncGPUReadback.Request(c._outputToken, (request) => {
+            if (c._sequenceComplete) {
+              return;
+            }
           
-          if (request.hasError) {
-            Debug.LogError("Failed to readback output token buffer");
-            enabled = false;
-            return;
-          }
+            if (request.hasError) {
+              Debug.LogError("Failed to readback output token buffer");
+              enabled = false;
+              return;
+            }
 
-          Debug.Assert(ResultTokens.Count < _config.seq_len);
+            Debug.Assert(c._resultTokens.Count < _config.seq_len);
 
-          int token = request.GetData<int>()[0];
-          if (token == _tokenizer.SOS || token == _tokenizer.EOS) {
-            SequenceComplete();
-            return;
-          }
+            int token = request.GetData<int>()[0];
+            if (token == _tokenizer.SOS || token == _tokenizer.EOS) {
+              SequenceComplete(c);
+              return;
+            }
 
-          ProduceToken(token, isFinalToken);
-        });
+            c.ProduceToken(token, isFinalToken);
+          });
+        }
+
+        --c._tokensToRun;
+        ++c._pos;
       }
-
-      --_tokensToRun;
-      ++_pos;
+      
     }
   }
 
-  private void ProduceToken(int token, bool isFinalToken) {
-    ResultTokens.Add(token);
-    string tokenString = _tokenizer.Detokenize(token);
-    if (_Debug) {
-      Debug.Log($"Output token: {token} {tokenString}");
-    }
-
-    OnNewToken?.Invoke(tokenString);
-    
-    if (isFinalToken) {
-      SequenceComplete();
-    }
-  }
-
-  private void SequenceComplete() {
+  private void SequenceComplete(Conversation conversation) {
     _gpuStateDebugger?.TraceFinished();
-    _sequenceComplete = true;
-    _tokensToRun = 0;
-    string fullSequence = _tokenizer.Detokenize(ResultTokens);
-    Debug.Log("Sequence complete: " + fullSequence);
-    OnSequenceComplete?.Invoke(fullSequence);
+    conversation.SequenceComplete();
   }
 
   private void LoadShader() {
@@ -181,18 +144,19 @@ public class Llama : MonoBehaviour {
     _kernels = new LlamaKernels(_llamaShader);
   }
 
-  public void RunTransformer(int pos) {
+  public void RunTransformer(Conversation conversation) {
     if (!_isInitialized) {
       Initialize();
     }
 
+    int pos = conversation._pos;
     int dim = _config.dim;
     int hidden_dim = _config.hidden_dim;
     
     // The first step is to load the embedding for the current token.  This is just a simple lookup into the
     // embedding table of the last generated token (or the start of sequence token when we begin).
-    LoadEmbedding(_runState.x, _runState.outputToken);
-    _gpuStateDebugger?.ProcessState($"token{_pos}_load_embedding", _runState.x);
+    LoadEmbedding(_runState.x, conversation._outputToken);
+    _gpuStateDebugger?.ProcessState($"token{pos}_load_embedding", _runState.x);
 
     // We process each layer more or less independently, and the results of each layer feed into the next layer.
     // The input for each layer is in runState.x, which initially is just the embedding of the input token.
@@ -204,7 +168,7 @@ public class Llama : MonoBehaviour {
       // NOTE!  RMSNorm also sneaks in a scaling by a set of weights.  These weights are defined per-layer, and
       // allow each layer to emphasize different features in the input.
       RmsNorm(_runState.x, _weightsGpu.layerWeights[l].rms_att_weight, _runState.xb, dim);
-      _gpuStateDebugger?.ProcessState($"token{_pos}_layer{l}_rmsnorm", _runState.xb);
+      _gpuStateDebugger?.ProcessState($"token{pos}_layer{l}_rmsnorm", _runState.xb);
 
       // QKV (query, key, value) matmuls for this position.
       // The normalized layer input is multiplied by (dim, dim) matrices wq, wk, and wv, the results of which
@@ -214,9 +178,9 @@ public class Llama : MonoBehaviour {
       MatMul(_weightsGpu.layerWeights[l].wk, _runState.xb, _runState.k, dim, dim);
       MatMul(_weightsGpu.layerWeights[l].wv, _runState.xb, _runState.v, dim, dim);
 
-      _gpuStateDebugger?.ProcessState($"token{_pos}_layer{l}_q", _runState.q);
-      _gpuStateDebugger?.ProcessState($"token{_pos}_layer{l}_k", _runState.k);
-      _gpuStateDebugger?.ProcessState($"token{_pos}_layer{l}_v", _runState.v);
+      _gpuStateDebugger?.ProcessState($"token{pos}_layer{l}_q", _runState.q);
+      _gpuStateDebugger?.ProcessState($"token{pos}_layer{l}_k", _runState.k);
+      _gpuStateDebugger?.ProcessState($"token{pos}_layer{l}_v", _runState.v);
 
       // Apply RoPE rotation to the q and k vectors.
       // RoPE is an alternative to positional encoding that works by "rotating" the query and key vectors using
@@ -228,14 +192,14 @@ public class Llama : MonoBehaviour {
       // the attention mechanism rather than directly to the input makes intuitive sense, since the attention
       // mechanism is the only part of the network that takes the full sequence into account.
       Rope(_runState.q, _runState.k, pos, l);
-      _gpuStateDebugger?.ProcessState($"token{_pos}_layer{l}_rope_q", _runState.q);
-      _gpuStateDebugger?.ProcessState($"token{_pos}_layer{l}_rope_k", _runState.k);
+      _gpuStateDebugger?.ProcessState($"token{pos}_layer{l}_rope_q", _runState.q);
+      _gpuStateDebugger?.ProcessState($"token{pos}_layer{l}_rope_k", _runState.k);
 
       // As we process each token, we accumulate the key and value vectors into a key/value cache, which allows us
       // to reuse them for future tokens.
       // XXX: Copy only bytes using runtime size!
-      Memcpy(_persistentState.layers[l].key_cache, _runState.k, 0, pos * dim, dim);
-      Memcpy(_persistentState.layers[l].value_cache, _runState.v, 0, pos * dim, dim);
+      Memcpy(conversation._persistentState.layers[l].key_cache, _runState.k, 0, pos * dim, dim);
+      Memcpy(conversation._persistentState.layers[l].value_cache, _runState.v, 0, pos * dim, dim);
 
       // The results of attention are an accumulation in this buffer, so we zero it out for all heads before
       // computing attention 
@@ -248,7 +212,7 @@ public class Llama : MonoBehaviour {
         // each previous token in the sequence we dot product runState.q with keyCache.v[pos] and store it in
         // runState.att[pos].
         // XXX: Load keys using 16 bit!
-        ComputeAttention(_runState.q, _persistentState.layers[l].key_cache, _runState.att, h, pos);
+        ComputeAttention(_runState.q, conversation._persistentState.layers[l].key_cache, _runState.att, h, pos);
 
         // Normalize attension scores using softamx.
         // NOTE: This is currently implemented serially in a single gpu thread, which is obviously very bad.
@@ -266,26 +230,26 @@ public class Llama : MonoBehaviour {
         // NOTE: The output vector is using fixed point to allow for atomic operations, converted to floats
         //   below.
         // XXX: Use 16 bit value cache!!
-        WeightedSum(_persistentState.layers[l].value_cache, _runState.att, _runState.xbFixed, h, pos);
+        WeightedSum(conversation._persistentState.layers[l].value_cache, _runState.att, _runState.xbFixed, h, pos);
       }
       
       // Convert all fixed point output vectors from attention into float
       FixedToFloat(_runState.xbFixed, _runState.xb, dim);
-      _gpuStateDebugger?.ProcessState($"token{_pos}_layer{l}_attention", _runState.xb);
+      _gpuStateDebugger?.ProcessState($"token{pos}_layer{l}_attention", _runState.xb);
 
       // Final matmul to get the output of the attention.  This allows us to apply some additional learned weights
       // to the output of the attention.
       MatMul(_weightsGpu.layerWeights[l].wo, _runState.xb, _runState.xb2, dim, dim);
-      _gpuStateDebugger?.ProcessState($"token{_pos}_layer{l}_weighted_attention", _runState.xb2);
+      _gpuStateDebugger?.ProcessState($"token{pos}_layer{l}_weighted_attention", _runState.xb2);
 
       // Residual connection back into x.  This allows us to combine many layers without losing signal during
       // backpropagation through many layers.
       Accumulate(_runState.x, _runState.xb2, dim);
-      _gpuStateDebugger?.ProcessState($"token{_pos}_layer{l}_accumulate_attention", _runState.x);
+      _gpuStateDebugger?.ProcessState($"token{pos}_layer{l}_accumulate_attention", _runState.x);
 
       // A final RMS norm of the outputs of the attention module.
       RmsNorm(_runState.x, _weightsGpu.layerWeights[l].rms_ffn_weight, _runState.xb, dim);
-      _gpuStateDebugger?.ProcessState($"token{_pos}_layer{l}_attention_norm", _runState.xb);
+      _gpuStateDebugger?.ProcessState($"token{pos}_layer{l}_attention_norm", _runState.xb);
 
       // For the feedforward network, we use a 2-layer MLP with an additional elementwise multiply to allow the
       // network to learn to amplify or diminish the outputs from the first layer (ie gating).  Also unlike
@@ -306,20 +270,20 @@ public class Llama : MonoBehaviour {
 
       // Multiply result by w2 to compress back to (dim,)
       MatMul(_weightsGpu.layerWeights[l].w2, _runState.hb, _runState.xb, dim, hidden_dim);
-      _gpuStateDebugger?.ProcessState($"token{_pos}_layer{l}_ffn", _runState.xb);
+      _gpuStateDebugger?.ProcessState($"token{pos}_layer{l}_ffn", _runState.xb);
 
       // Again, apply a residual connection back to the original layer input to preserve the gradient.
       Accumulate(_runState.x, _runState.xb, dim);
-      _gpuStateDebugger?.ProcessState($"token{_pos}_layer{l}_accumulate_ffn", _runState.x);
+      _gpuStateDebugger?.ProcessState($"token{pos}_layer{l}_accumulate_ffn", _runState.x);
     }
     
     // Final rmsnorm of all layer results
     RmsNorm(_runState.x, _weightsGpu.rms_final_weight, _runState.xb, dim);
-    _gpuStateDebugger?.ProcessState($"token{_pos}_final_rmsnorm", _runState.xb);
+    _gpuStateDebugger?.ProcessState($"token{pos}_final_rmsnorm", _runState.xb);
 
     // Classify normalized results into logits with one big, fat matmul
     MatMul(_weightsGpu.GetWCLS(), _runState.xb, _runState.logits, _config.vocab_size, dim);
-    _gpuStateDebugger?.ProcessState($"token{_pos}_classifier", _runState.logits);
+    _gpuStateDebugger?.ProcessState($"token{pos}_classifier", _runState.logits);
   }
 
   private void Initialize() {
@@ -328,13 +292,15 @@ public class Llama : MonoBehaviour {
     QuantizationUtil.EnableQuantizationKeywords(_llamaShader, RuntimeQuantizationMode, "RUNTIME");
     
     _runState = new RunState(_config, RuntimeQuantizationMode);
-    _persistentState = new PersistentState(_config, RuntimeQuantizationMode);
+    
+    foreach (Conversation c in _conversations) {
+      c.Initialize();
+    }
   }
 
   private void Uninitialize() {
     // TODO: Wait for finishing all tasks?
 
-    _persistentState.Dispose();
     _runState.Dispose();
 
     _weightsGpu.Dispose();
@@ -756,11 +722,11 @@ public class Llama : MonoBehaviour {
     _llamaShader.Dispatch(_kernels.findMaxVal, threadGroupsX, 1, 1);
   }
 
-  private void SampleLogits(ComputeBuffer runStateLogits, float random) {
+  private void SampleLogits(ComputeBuffer outputToken, float random) {
     Profiler.BeginSample("SampleLogits");
 
-    _llamaShader.SetBuffer(_kernels.sampleLogits, "sample_probabilities", runStateLogits);
-    _llamaShader.SetBuffer(_kernels.sampleLogits, "sample_result", _runState.outputToken);
+    _llamaShader.SetBuffer(_kernels.sampleLogits, "sample_probabilities", _runState.logits);
+    _llamaShader.SetBuffer(_kernels.sampleLogits, "sample_result", outputToken);
     _llamaShader.SetInt("sample_length", _config.vocab_size);
     _llamaShader.SetFloat("sample_random", random);
 
@@ -770,13 +736,13 @@ public class Llama : MonoBehaviour {
 
     if (_Debug) {
       int[] resultData = new int[1];
-      _runState.outputToken.GetData(resultData);
+      outputToken.GetData(resultData);
       int resultToken = resultData[0];
       Debug.Log($"Resulting token: {resultToken}");
     }
   }
 
-  private void PrintLogitsDebug() {
+  private void PrintLogitsDebug(Conversation conversation) {
     float[] logits = new float[_config.vocab_size];
     _runState.logits.GetData(logits);
 
@@ -794,7 +760,7 @@ public class Llama : MonoBehaviour {
     }
 
     int[] outputToken = new int[1];
-    _runState.outputToken.GetData(outputToken);
+    conversation._outputToken.GetData(outputToken);
     string outputTokenString = _tokenizer.Detokenize(outputToken[0]);
 
     string debugString = string.Join(", ", new ArraySegment<float>(logits, 0, 256));

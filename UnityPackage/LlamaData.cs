@@ -140,7 +140,6 @@ public class RunState : IDisposable {
   public ComputeBuffer v; // value (dim,)
   public ComputeBuffer att; // buffer for scores/attention values (n_heads, seq_len)
   public ComputeBuffer logits; // output logits
-  public ComputeBuffer outputToken; // output token
 
   // Due to a very bad implementation of softmax we need to use a temporary buffer, but we can remove this once we
   // improve it.
@@ -162,7 +161,6 @@ public class RunState : IDisposable {
     v = new ComputeBuffer(c.dim, sizeof(float));
     att = new ComputeBuffer(c.n_heads * c.seq_len, sizeof(float));
     logits = new ComputeBuffer(c.vocab_size, sizeof(float));
-    outputToken = new ComputeBuffer(1, sizeof(int));
 
     softmaxTemp = new ComputeBuffer(c.vocab_size, sizeof(float));
     softmaxTempB = new ComputeBuffer(c.vocab_size, sizeof(float));
@@ -183,7 +181,6 @@ public class RunState : IDisposable {
     v.Dispose();
     att.Dispose();
     logits.Dispose();
-    outputToken.Dispose();
     softmaxTemp.Dispose();
     softmaxTempB.Dispose();
     scalarTemp0.Dispose();

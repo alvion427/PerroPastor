@@ -4,15 +4,15 @@ using System.Collections.Generic;
 using UnityEngine;
 
 public class LlamaTextSetter : MonoBehaviour {
-    public Llama Llama;
+    public Conversation Conversation;
     public TMPro.TMP_Text Text;
     
     private void OnEnable() {
-        Llama.OnNewToken += OnNewToken;
+        Conversation.OnNewToken += OnNewToken;
     }
 
     private void OnDisable() {
-        Llama.OnNewToken -= OnNewToken;
+        Conversation.OnNewToken -= OnNewToken;
     }
 
     void OnNewToken(string token) {

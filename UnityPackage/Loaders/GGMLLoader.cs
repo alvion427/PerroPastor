@@ -66,14 +66,6 @@ public class GGMLLoader : ModelLoaderBase {
       try {
         weights.token_embedding_table = CreateAndLoadTensor(metaData.NamedTensors["tok_embeddings.weight"], fileStart);
 
-#if false
-        float[] dequantized = QuantizationUtil.DequantizeCpu(weights.token_embedding_table.Buffer,
-          weights.token_embedding_table.Mode,
-          0, 1);
-
-          throw new Exception();
-#endif
-        
         weights.rms_final_weight = CreateAndLoadTensor(metaData.NamedTensors["norm.weight"], fileStart);
         if (hasClassifierWeights) {
           weights.wcls = CreateAndLoadTensor(metaData.NamedTensors["output.weight"], fileStart);
