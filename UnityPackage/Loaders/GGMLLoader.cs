@@ -26,12 +26,6 @@ public class GGMLLoader : ModelLoaderBase {
   }
 
   public static LlamaConfig CreateConfig(GGMLMetaData metaData) {
-    // We don't currently support having different precisions for different weights (though we should!)
-    // For now, just assume that the embedding weights are the precision we want for all weights.  In
-    // the 16 bit models I've looked at, they are using fp32 for the normalization weights (why?) but we 
-    // will just quantize that down on the fly.
-    QuantizationModes sourceMode = metaData.NamedTensors["tok_embeddings.weight"].Type.GetTraits().QuantizationMode;
-
     // Found this magic math to compute the ffn dimension in the llama.cpp code
     // ref: https://github.com/facebookresearch/llama/blob/6c7fe276574e78057f917549435a2554000a876d/llama/model.py#L194-L199
     uint n_ff_raw = 2 * (4 * metaData.Hparams.NEmbed) / 3;
@@ -71,6 +65,15 @@ public class GGMLLoader : ModelLoaderBase {
       accessor.SafeMemoryMappedViewHandle.AcquirePointer(ref fileStart);
       try {
         weights.token_embedding_table = CreateAndLoadTensor(metaData.NamedTensors["tok_embeddings.weight"], fileStart);
+
+#if false
+        float[] dequantized = QuantizationUtil.DequantizeCpu(weights.token_embedding_table.Buffer,
+          weights.token_embedding_table.Mode,
+          0, 1);
+
+          throw new Exception();
+#endif
+        
         weights.rms_final_weight = CreateAndLoadTensor(metaData.NamedTensors["norm.weight"], fileStart);
         if (hasClassifierWeights) {
           weights.wcls = CreateAndLoadTensor(metaData.NamedTensors["output.weight"], fileStart);
@@ -148,6 +151,9 @@ public class GGMLLoader : ModelLoaderBase {
         break;
       case GGMLType.F16:
         quantMode = QuantizationModes.Float16;
+        break;
+      case GGMLType.Q5_1:
+        quantMode = QuantizationModes.Q5_1;
         break;
       case GGMLType.Q8_0:
         quantMode = QuantizationModes.Q8_0;

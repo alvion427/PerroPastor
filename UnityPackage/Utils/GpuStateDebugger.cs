@@ -55,7 +55,7 @@ class GpuStateDebugger {
         Debug.Log("Done!");
     }
 
-    public void ProcessState(string name, ComputeBuffer buffer, float warningTolerance = 0.01f) {
+    public bool ProcessState(string name, ComputeBuffer buffer, float warningTolerance = 0.01f) {
         float[] data = new float[buffer.ElementCount<float>()];
         buffer.GetData(data);
 
@@ -77,11 +77,15 @@ class GpuStateDebugger {
 
             if (avgError > warningTolerance) {
                 Debug.LogWarning($"EXCESSIVE ERROR {name} - Avg: {avgError}  Max: {maxError}");
+                return false;
             }
             else {
                 Debug.Log($"State {name} passed - Avg: {avgError}  Max: {maxError}");
+                return true;
             }
         }
+
+        return true;
     }
     
     public Dictionary<string, float[]> SavedStates = new Dictionary<string, float[]>();

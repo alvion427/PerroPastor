@@ -106,11 +106,13 @@ public class Llama : MonoBehaviour {
       ++tokensProcessedThisFrame;
 
       RunTransformer(_pos);
+      
+      bool isFinalToken = _tokensToRun == 1;
 
       if (_pos < QueryTokens.Count) {
         int queryToken = QueryTokens[_pos];
         _runState.outputToken.SetData(new int[] { queryToken });
-        ProduceToken(queryToken);
+        ProduceToken(queryToken, isFinalToken);
       }
       else {
         if (Temperature == 0) {
@@ -122,8 +124,6 @@ public class Llama : MonoBehaviour {
           SampleLogits(_runState.logits, (float)_rng.NextDouble());
         }
         
-        bool isFinalToken = _tokensToRun == 1;
-
         AsyncGPUReadback.Request(_runState.outputToken, (request) => {
           if (_sequenceComplete) {
             return;
@@ -143,11 +143,7 @@ public class Llama : MonoBehaviour {
             return;
           }
 
-          ProduceToken(token);
-
-          if (isFinalToken) {
-            SequenceComplete();
-          }
+          ProduceToken(token, isFinalToken);
         });
       }
 
@@ -156,7 +152,7 @@ public class Llama : MonoBehaviour {
     }
   }
 
-  private void ProduceToken(int token) {
+  private void ProduceToken(int token, bool isFinalToken) {
     ResultTokens.Add(token);
     string tokenString = _tokenizer.Detokenize(token);
     if (_Debug) {
@@ -164,6 +160,10 @@ public class Llama : MonoBehaviour {
     }
 
     OnNewToken?.Invoke(tokenString);
+    
+    if (isFinalToken) {
+      SequenceComplete();
+    }
   }
 
   private void SequenceComplete() {
@@ -188,7 +188,7 @@ public class Llama : MonoBehaviour {
 
     int dim = _config.dim;
     int hidden_dim = _config.hidden_dim;
-
+    
     // The first step is to load the embedding for the current token.  This is just a simple lookup into the
     // embedding table of the last generated token (or the start of sequence token when we begin).
     LoadEmbedding(_runState.x, _runState.outputToken);

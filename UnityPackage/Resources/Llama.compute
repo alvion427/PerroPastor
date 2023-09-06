@@ -1,5 +1,5 @@
-#pragma multi_compile QUANT_WEIGHT_32 QUANT_WEIGHT_16 QUANT_WEIGHT_Q8_0
-//#define QUANT_WEIGHT_Q8_0 1
+#pragma multi_compile QUANT_WEIGHT_32 QUANT_WEIGHT_16 QUANT_WEIGHT_Q5_1 QUANT_WEIGHT_Q8_0
+//#define QUANT_WEIGHT_Q5_1 1
 #pragma multi_compile QUANT_RUNTIME_32 QUANT_RUNTIME_16
 
 #include "Common.cginc"
@@ -9,6 +9,12 @@
     #define STORE_WEIGHT StoreVec16f
     #define LOAD_WEIGHT LoadVec16f
     #define WEIGHT_IS_QUANTIZED 0
+#elif QUANT_WEIGHT_Q5_1
+    #define WEIGHT_BLOCK_VEC 8
+    #define WEIGHT_BLOCK_TYPE Q5_1_Block
+    #define ENCODE_WEIGHT Encode_Q5_1
+    #define DECODE_WEIGHT Decode_Q5_1
+    #define WEIGHT_IS_QUANTIZED 1
 #elif QUANT_WEIGHT_Q8_0
     #define WEIGHT_BLOCK_VEC 8
     #define WEIGHT_BLOCK_TYPE Q8_0_Block
@@ -110,16 +116,14 @@ void LoadEmbedding(uint3 id : SV_DispatchThreadID) {
 #if !WEIGHT_IS_QUANTIZED    
     loadembedding_dest[id.x] = LOAD_WEIGHT(loadembedding_source[sourceIndex]);
 #else
-    WEIGHT_BLOCK_TYPE block = loadembedding_source[sourceIndex];
-    const float scale = block.scale;
+    const WEIGHT_BLOCK_TYPE block = loadembedding_source[sourceIndex];
 
     int destOffset = id.x * WEIGHT_BLOCK_VEC;
 
     [unroll]
     for (uint valueIndex = 0; valueIndex < WEIGHT_BLOCK_VEC; ++valueIndex)
     {
-        const uint source = block.values[valueIndex];
-        float4 v = DECODE_WEIGHT(source, scale);
+        float4 v = DECODE_WEIGHT(block, valueIndex);
         loadembedding_dest[destOffset + valueIndex] = v;
     }
 #endif
@@ -149,14 +153,13 @@ void MatMul(uint3 id : SV_DispatchThreadID) {
 #else
     for (uint b = 0; b < matmul_blocksPerRow; ++b)
     {
-        WEIGHT_BLOCK_TYPE block = matmul_matrixW[row * matmul_blocksPerRow + b];
-        const float scale = block.scale;
+        const WEIGHT_BLOCK_TYPE block = matmul_matrixW[row * matmul_blocksPerRow + b];
         
         [unroll]
         for (uint valueIndex = 0; valueIndex < WEIGHT_BLOCK_VEC; ++valueIndex)
         {
-            uint col = b * WEIGHT_BLOCK_VEC + valueIndex; 
-            float4 a = DECODE_WEIGHT(block.values[valueIndex], scale);
+            uint col = b * WEIGHT_BLOCK_VEC + valueIndex;
+            float4 a = DECODE_WEIGHT(block, valueIndex);
             float4 b = matmul_vectorX[col];
             sum += dot(a, b);
         }
@@ -215,11 +218,10 @@ void RMSNorm(uint3 id : SV_DispatchThreadID) {
 #else
     for (uint b = 0; b < rmsnorm_blockCount; ++b)
     {
-        WEIGHT_BLOCK_TYPE block = rmsnorm_Weight[b];
-        const float scale = block.scale;
+        const WEIGHT_BLOCK_TYPE block = rmsnorm_Weight[b];
         for (uint valueIndex = 0; valueIndex < WEIGHT_BLOCK_VEC; ++valueIndex)
         {
-            float4 weights = DECODE_WEIGHT(block.values[valueIndex], scale);
+            float4 weights = DECODE_WEIGHT(block, valueIndex);
             j = b * WEIGHT_BLOCK_VEC + valueIndex;
             rmsnorm_Out[j] = weights * (ss * rmsnorm_In[j]);
         }

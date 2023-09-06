@@ -77,7 +77,7 @@ void Quantize(uint3 id : SV_DispatchThreadID)
     for (valueIndex = 0; valueIndex < DEST_BLOCK_VEC; ++valueIndex)
     {
         float4 source = LOAD_SOURCE(quantize_input[sourceIndex + valueIndex]);
-        block.values[valueIndex] = ENCODE_DEST(source, scale);
+        ENCODE_DEST(source, block, valueIndex);
     }
     quantize_output[destIndex] = block;
 #else
@@ -104,7 +104,7 @@ void Dequantize(uint3 id : SV_DispatchThreadID)
 
 #if SOURCE_IS_QUANTIZED
     uint sourceIndex = quantize_offset + id.x;
-    SOURCE_BLOCK_TYPE block = dequantize_input[sourceIndex];
+    const SOURCE_BLOCK_TYPE block = dequantize_input[sourceIndex];
     int destIndex = sourceIndex * SOURCE_BLOCK_VEC;
 
     const float scale = block.scale;
@@ -112,8 +112,7 @@ void Dequantize(uint3 id : SV_DispatchThreadID)
     [unroll]
     for (uint valueIndex = 0; valueIndex < SOURCE_BLOCK_VEC; ++valueIndex)
     {
-        const uint source = block.values[valueIndex];
-        float4 v = DECODE_SOURCE(source, scale);
+        float4 v = DECODE_SOURCE(block, valueIndex);
         dequantize_output[destIndex + valueIndex] = STORE_DEST(v);
     }
 #endif

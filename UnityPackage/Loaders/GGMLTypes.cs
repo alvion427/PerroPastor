@@ -2,6 +2,7 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
+using Unity.Mathematics;
 using UnityEngine;
 
 public class GGMLMetaData {
@@ -111,7 +112,16 @@ public enum GGMLFileType
 public unsafe struct Q8_0Block {
   public float scale;
   public fixed sbyte values[32];
-} 
+}
+
+public unsafe struct Q5_1Block
+{
+  public half scale;
+  public half min;
+  public uint highBits;
+  public fixed uint values[4];
+};
+
 
 public class GGMLTraitType 
 {
@@ -147,6 +157,15 @@ public class GGMLTraitType
     QuantizationMode = QuantizationModes.Float16,
   };
   
+  public static readonly GGMLTraitType Q5_1 = new GGMLTraitType
+  {
+    TypeName = "q5_1",
+    BlockSize = 32,
+    TypeSize = 24,  // 32 4 bit nibbles plus 16 high bits plus two bytes each for min/max
+    IsQuantized = true,
+    QuantizationMode = QuantizationModes.Q5_1,
+  };
+
   public static readonly GGMLTraitType Q8_0 = new GGMLTraitType
   {
     TypeName = "q8_0",
@@ -160,6 +179,7 @@ public class GGMLTraitType
   {
     {GGMLType.F32, F32},
     {GGMLType.F16, F16},
+    { GGMLType.Q5_1, Q5_1},
     { GGMLType.Q8_0, Q8_0},
   };
 }
