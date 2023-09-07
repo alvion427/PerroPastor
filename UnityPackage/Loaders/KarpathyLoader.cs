@@ -185,7 +185,7 @@ public class KarpathyLoader : ModelLoaderBase {
   public void LoadTokenizer(int vocabSize) {
     string fullPath = VocabPath;
     if (!File.Exists(fullPath)) {
-      fullPath = Path.Combine(Application.streamingAssetsPath, "models", fullPath);
+      fullPath = Path.Combine(Application.persistentDataPath, "Models", fullPath);
     }
 
     using (BinaryReader reader = new BinaryReader(File.Open(fullPath, FileMode.Open))) {

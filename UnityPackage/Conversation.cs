@@ -14,6 +14,9 @@ public class Conversation : MonoBehaviour {
   public string Prompt = "";
   public float Temperature = 0.9f;
   public int RunOnStart = 0;
+
+  public string PromptPrefix = "\\n";
+  public string PromptPostfix = "\\n";
   public string TerminationSequence = "";
 
   public bool UsePromptCache = true;
@@ -31,6 +34,7 @@ public class Conversation : MonoBehaviour {
   internal List<int> _terminationTokens;
   internal List<int> _resultTokens = new List<int>();
 
+  private bool _initialized = false;
   private int _initialPromptLength = 0;
 
   void Start() {
@@ -38,7 +42,9 @@ public class Conversation : MonoBehaviour {
   }
 
   private void OnDestroy() {
-    Shutdown();
+    if (_initialized) {
+      Shutdown();
+    }
   }
 
   internal void Initialize() {
@@ -62,9 +68,12 @@ public class Conversation : MonoBehaviour {
       RunTokens(Prompt, RunOnStart);
       _initialPromptLength = _resultTokens.Count;
     }
+
+    _initialized = true;
   }
 
   internal void Shutdown() {
+    Debug.Assert(_initialized);
     _outputToken.Dispose();
     _persistentState.Dispose();
   }

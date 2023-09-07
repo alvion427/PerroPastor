@@ -67,7 +67,7 @@ public class GpuTensor : IDisposable {
   }
 }
 
-public class WeightsGpu : IDisposable {
+public class WeightsGpu {
   public GpuTensor token_embedding_table;
   public GpuTensor rms_final_weight;
   public GpuTensor wcls;
@@ -75,8 +75,50 @@ public class WeightsGpu : IDisposable {
   public LayerWeightsGPU[] layerWeights;
 
   public GpuTensor GetWCLS() => wcls ?? token_embedding_table;
+  
+  public int ReferenceCount { get; private set; }
 
-  public void Dispose() {
+  public WeightsGpu() {
+    ReferenceCount = 1;
+  }
+
+  public void AddReference() {
+    if (ReferenceCount == 0) {
+      throw new Exception("Cannot add reference to disposed weights");
+    }
+    ReferenceCount++;
+  }
+  
+  public void RemoveReference() {
+    if (ReferenceCount == 0) {
+      throw new Exception("Cannot remove reference from disposed weights");
+    }
+    ReferenceCount--;
+    if (ReferenceCount == 0) {
+      Dispose();
+    }
+  }
+
+  public bool IsValid() {
+    if (ReferenceCount > 0) {
+      if (!token_embedding_table.Buffer.IsValid() || !rms_final_weight.Buffer.IsValid() || (wcls != null && !wcls.Buffer.IsValid())) {
+        return false;
+      }
+      
+      for (int l = 0; l < layerWeights.Length; l++) {
+        if (!layerWeights[l].IsValid()) {
+          return false;
+        }
+      }
+      
+      return true;
+    }
+    else {
+      return false;
+    }
+  }
+
+  private void Dispose() {
     token_embedding_table.Dispose();
     rms_final_weight.Dispose();
     if (wcls != null)
@@ -113,6 +155,12 @@ public class LayerWeightsGPU : IDisposable {
     w1.Dispose();
     w2.Dispose();
     w3.Dispose();
+  }
+
+  public bool IsValid() {
+    return rms_att_weight.Buffer.IsValid() && rms_ffn_weight.Buffer.IsValid() &&
+           wq.Buffer.IsValid() && wk.Buffer.IsValid() && wv.Buffer.IsValid() && wo.Buffer.IsValid() &&
+           w1.Buffer.IsValid() && w2.Buffer.IsValid() && w3.Buffer.IsValid();
   }
 }
 

@@ -10,5 +10,7 @@
         "email": "alvion@gmail.com",
         "url": "http://cascadetechnologies.ai"
     },
-    "dependencies": {}
+    "dependencies": {
+        "com.unity.mathematics": "1.2.6"
+    }
 }

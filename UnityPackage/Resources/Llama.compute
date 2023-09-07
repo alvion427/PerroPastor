@@ -526,7 +526,7 @@ groupshared int findmaxval_groupMaxVal;
 
 [numthreads(kThreadsPerGroup, 1, 1)]
 void FindMaxValue(uint3 id : SV_DispatchThreadID, uint3 gid : SV_GroupThreadID) {
-    if (all(gid) == 0)
+    if (gid.x == 0)
     {
         findmaxval_groupMaxVal = -127 * kFixedPointScale;
     }
@@ -542,7 +542,7 @@ void FindMaxValue(uint3 id : SV_DispatchThreadID, uint3 gid : SV_GroupThreadID) 
 
     GroupMemoryBarrierWithGroupSync();
 
-    if (all(gid) == 0)
+    if (gid.x == 0)
     {
         int groupMax = findmaxval_groupMaxVal;
         InterlockedMax(findmaxval_output[0], groupMax);

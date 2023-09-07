@@ -39,13 +39,22 @@ public class Tokenizer {
   public NativeArray<int> Tokenize(string text) {
     List<int> tokens = new List<int>();
 
-    foreach (char c in text) {
-      if (_textToToken.TryGetValue(c.ToString(), out int id)) {
-        tokens.Add(id);
+    for (int i = 0; i < text.Length; i++) {
+      // Replace <sos> and <eos> with appropriate tokens and skip forward
+      if (text.IndexOf("<sos>", i) == i)
+      {
+        tokens.Add(SOS);
+        i += "<sos>".Length - 1;
+        continue;
       }
-      else {
-        throw new Exception($"Character '{c}' not found in vocabulary");
+      else if (text.IndexOf("<eos>", i) == i)
+      {
+        tokens.Add(EOS);
+        i += "<eos>".Length - 1;
+        continue;
       }
+
+      tokens.Add(_textToToken[text[i].ToString()]);
     }
 
     while (true) {

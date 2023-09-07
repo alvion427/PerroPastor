@@ -27,7 +27,7 @@ public abstract class ModelLoaderBase : MonoBehaviour {
     }
     else {
       if (string.IsNullOrEmpty(ModelsDir)) {
-        ModelsDir = Path.Combine(Application.streamingAssetsPath, "Models");
+        ModelsDir = Path.Combine(Application.persistentDataPath, "Models");
       }
       return Path.Combine(ModelsDir, ModelPath);
     }

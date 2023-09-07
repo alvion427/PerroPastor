@@ -7,9 +7,31 @@ using System.Threading.Tasks;
 using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Mathematics;
+using Unity.VisualScripting.Antlr3.Runtime;
+using UnityEditor;
 using UnityEngine;
 
 public class GGMLLoader : ModelLoaderBase {
+  
+  public bool CacheWeights = false;
+
+  private class CachedWeights {
+    public string ModelPath;
+    public LlamaConfig Config;
+    public WeightsGpu Weights;
+    public Tokenizer Tokenizer;
+  }
+  
+  private static CachedWeights _cachedWeights;
+
+  static GGMLLoader() {
+    AssemblyReloadEvents.beforeAssemblyReload += () => {
+      if (_cachedWeights != null) {
+        _cachedWeights.Weights.RemoveReference();
+        _cachedWeights = null;
+      }
+    };    
+  }
   
   public static GGMLMetaData LoadMetadata(string path) {
     FileStream stream = new FileStream(path, FileMode.Open, FileAccess.Read);
@@ -49,6 +71,19 @@ public class GGMLLoader : ModelLoaderBase {
 
   protected async override Task<(LlamaConfig, WeightsGpu, Tokenizer)> LoadModelImpl() {
     string fullPath = GetFullModelPath();
+
+    if (CacheWeights && _cachedWeights != null) {
+      if (_cachedWeights.ModelPath == fullPath && _cachedWeights.Weights.IsValid()) {
+        Debug.Log("Using cached weights at path " + _cachedWeights.ModelPath);
+        _cachedWeights.Weights.AddReference();
+        return (_cachedWeights.Config, _cachedWeights.Weights, _cachedWeights.Tokenizer);
+      }
+      else {
+        Debug.Log("Freeing old cached weights at path " + _cachedWeights.ModelPath);
+        _cachedWeights.Weights.RemoveReference();
+        _cachedWeights = null;
+      }
+    }
 
     long start = DateTime.Now.Ticks;
     var metaData = await Task.Run(() => { return LoadMetadata(fullPath); });
@@ -108,6 +143,17 @@ public class GGMLLoader : ModelLoaderBase {
     const int eos = 2;
     Tokenizer tokenizer = new Tokenizer(metaData.Vocab.TokenToId, metaData.Vocab.IdToToken, metaData.Vocab.IdToScore,
       (int)metaData.Hparams.NVocab, sos, eos);
+
+    if (CacheWeights) {
+      Debug.Log("Caching weights at path " + fullPath);
+      weights.AddReference();
+      _cachedWeights = new CachedWeights() {
+        ModelPath = fullPath,
+        Config = config,
+        Weights = weights,
+        Tokenizer = tokenizer,
+      };
+    }
     
     return (config, weights, tokenizer);
   }

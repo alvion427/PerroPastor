@@ -120,6 +120,7 @@ public class Llama : MonoBehaviour {
 
             int token = request.GetData<int>()[0];
             if (token == _tokenizer.SOS || token == _tokenizer.EOS) {
+              Debug.Log("Sequence ended with sos/eos");
               SequenceComplete(c, pos - 1);
               return;
             }
@@ -305,7 +306,7 @@ public class Llama : MonoBehaviour {
 
     _runState.Dispose();
 
-    _weightsGpu.Dispose();
+    _weightsGpu.RemoveReference();
 
     _isInitialized = false;
   }
