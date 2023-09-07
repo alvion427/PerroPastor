@@ -5,14 +5,15 @@ I also intend this repo to be a good opportunity to learn how LLMs work.  Althou
 
 # Getting Started
 * Clone the repo.
-* Make a new Unity project
-* Package Manager -> Add Package From Disk -> Choose "package.json" from repo folder.
-* A "Perro" menu should appear in Unity, choose "Download Sample Model" to download the model and tokenizer files to StreamingAssets/Models
-* Find PerroPastor in your Packages list in the unity Project window, copy the sample scene to your project.
+* Install Unity.  Project is using Unity 2021.3.22f1 but any 2021 LTS or newer version will probably work.
+* A "Perro" menu should appear in Unity, choose "Download Sample Model" to download the model and tokenizer files to StreamingAssets/Models.  This is just a toy model to tell stories.
+* Open the SampleProject.  (From Unity Hub: Open -> Add Project From Disk -> Browse to SampleProject folder)
+* Open the "Sample Scene"
 * Run the scene!
-* Try entering different prompts in the Llama.Prompt field (they shold be the first few words of a story)
-* Check out the [RunTransformer](https://github.com/alvion427/PerroPastor/blob/master/UnityPackage/Llama.cs#L168) function for lots of comments explaining in detail what is going on.
-* To run other models, you should be able to run any ggml compatible models in fp32, fp16, or q8_0, or q5_1.  Q5_1 is definitely the preference as far as performance goes (I get 10+ tokens per second on my xps15 with RTX 3050 and 4 gigs of vram).
+* The sample scene is setup to run two other models.  Use the menu Perro -> Open Model Folder to see your models folder and then download the models from the links below:
+  *  [openllama-ggml-q5_0.bin](https://huggingface.co/alvion427/open_llama_3b_ggml/tree/main)
+  *  [llama-2-7b-chat.ggmlv3.q5_1.bin](https://huggingface.co/TheBloke/Llama-2-7B-Chat-GGML/tree/main)
+*  Toggle the various Llama objects on/off to choose which model to run.  A script will automatically make sure that only one is enabled if you try to run with multiples.
 
 # Thank you Andrej Karpathy!!!
 This project was inspired by Andrej Karpathy's excellent [llama2.c project](https://github.com/karpathy/llama2.c), and owes a huge dept to Andrej and all of his work he has done over the years to support LLM literacy.  I find it so much easier to learn how something REALLY works when it is written in a simple language with no dependencies, rather than trying to peer through all the abstractions of higher level libraries like PyTorch.  You will see that lots of the naming and overall code flow still owes a great deal to llama2.c, although things have already started to diverge quite a bit, and will diverge a lot more in the next few weeks as I make things a bit more conducive to real-time game execution.
