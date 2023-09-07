@@ -1,12 +1,14 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.IO;
 using System.Threading.Tasks;
 using Unity.Collections;
 using UnityEngine;
 
 public abstract class ModelLoaderBase : MonoBehaviour {
   public string ModelPath;
+  public string ModelsDir;
   public Action<LlamaConfig, WeightsGpu, Tokenizer> OnLoaded;
   
   public Tokenizer Tokenizer { get; protected set; }
@@ -17,6 +19,18 @@ public abstract class ModelLoaderBase : MonoBehaviour {
   public void RequestLoad() {
     Debug.Assert(!IsLoaded && _task == null);
     _task = LoadModelImpl();
+  }
+
+  public string GetFullModelPath() {
+    if (Path.IsPathRooted(ModelPath)) {
+      return ModelPath;
+    }
+    else {
+      if (string.IsNullOrEmpty(ModelsDir)) {
+        ModelsDir = Path.Combine(Application.streamingAssetsPath, "Models");
+      }
+      return Path.Combine(ModelsDir, ModelPath);
+    }
   }
 
   void Update() {

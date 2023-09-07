@@ -17,9 +17,7 @@ public class KarpathyLoader : ModelLoaderBase {
   private List<IDisposable> _garbage = new List<IDisposable>();
 
   protected async override Task<(LlamaConfig, WeightsGpu, Tokenizer)> LoadModelImpl() {
-    if (!File.Exists(ModelPath)) {
-      ModelPath = Path.Combine(Application.streamingAssetsPath, "models", ModelPath);
-    }
+    string fullPath = GetFullModelPath();
 
     // Karpathy's format only uses float32
     float startTime = Time.realtimeSinceStartup;
@@ -29,7 +27,7 @@ public class KarpathyLoader : ModelLoaderBase {
       LlamaConfig config = null;
       WeightsGpu weights = null;
 
-      using (FileStream fs = new FileStream(ModelPath, FileMode.Open, FileAccess.Read))
+      using (FileStream fs = new FileStream(fullPath, FileMode.Open, FileAccess.Read))
       using (BinaryReader br = new BinaryReader(fs)) {
         // Read the config
         config = new LlamaConfig() {
@@ -136,7 +134,7 @@ public class KarpathyLoader : ModelLoaderBase {
       return (config, weights, Tokenizer);
     }
     catch (Exception e) {
-      Debug.LogError($"Failed to load weights from {ModelPath}: {e}");
+      Debug.LogError($"Failed to load weights from {fullPath}: {e}");
       return (null, null, null); // Failed to load
     }
     finally {

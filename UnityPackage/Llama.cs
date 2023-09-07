@@ -120,7 +120,7 @@ public class Llama : MonoBehaviour {
 
             int token = request.GetData<int>()[0];
             if (token == _tokenizer.SOS || token == _tokenizer.EOS) {
-              SequenceComplete(c);
+              SequenceComplete(c, pos - 1);
               return;
             }
 
@@ -135,9 +135,9 @@ public class Llama : MonoBehaviour {
     }
   }
 
-  internal void SequenceComplete(Conversation conversation) {
+  internal void SequenceComplete(Conversation conversation, int finalPos) {
     _gpuStateDebugger?.TraceFinished();
-    conversation.SequenceComplete();
+    conversation.SequenceComplete(finalPos);
   }
 
   private void LoadShader() {
@@ -412,8 +412,7 @@ public class Llama : MonoBehaviour {
 
     Profiler.EndSample();
 
-    //if (_Debug) {
-    if (pos == 8) {
+    if (_Debug) {
       int[] tokenData = new int[token.ElementCount<int>()];
       token.GetData(tokenData);
 

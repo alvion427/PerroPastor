@@ -48,10 +48,10 @@ public class GGMLLoader : ModelLoaderBase {
   }
 
   protected async override Task<(LlamaConfig, WeightsGpu, Tokenizer)> LoadModelImpl() {
-    string path = ModelPath;
+    string fullPath = GetFullModelPath();
 
     long start = DateTime.Now.Ticks;
-    var metaData = await Task.Run(() => { return LoadMetadata(path); });
+    var metaData = await Task.Run(() => { return LoadMetadata(fullPath); });
 
     bool hasClassifierWeights = metaData.NamedTensors.ContainsKey("output.weight");
     LlamaConfig config = CreateConfig(metaData);
@@ -59,7 +59,7 @@ public class GGMLLoader : ModelLoaderBase {
     weights.layerWeights = new LayerWeightsGPU[config.n_layers];
 
     unsafe {
-      var mmf = MemoryMappedFile.CreateFromFile(path, FileMode.Open, null, 0, MemoryMappedFileAccess.Read);
+      var mmf = MemoryMappedFile.CreateFromFile(fullPath, FileMode.Open, null, 0, MemoryMappedFileAccess.Read);
       var accessor = mmf.CreateViewAccessor(0, 0, MemoryMappedFileAccess.Read);
       byte* fileStart = null;
       accessor.SafeMemoryMappedViewHandle.AcquirePointer(ref fileStart);

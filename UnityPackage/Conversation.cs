@@ -97,17 +97,19 @@ public class Conversation : MonoBehaviour {
 
     OnNewToken?.Invoke(tokenString);
     
-    if (_resultTokens.Count > _initialPromptLength && _resultTokens.Count >= _terminationTokens.Count && 
+    if (_terminationTokens != null && _terminationTokens.Count > 0 && _resultTokens.Count > _initialPromptLength && 
+        _resultTokens.Count >= _terminationTokens.Count && 
         _resultTokens.TakeLast(_terminationTokens.Count).SequenceEqual(_terminationTokens)) {
       isFinalToken = true;
     }
     
     if (isFinalToken) {
-      Llama.SequenceComplete(this);
+      Llama.SequenceComplete(this, pos);
     }
   }
 
-  internal void SequenceComplete() {
+  internal void SequenceComplete(int finalPos) {
+    _pos = finalPos + 1;
     _sequenceComplete = true;
     _tokensToRun = 0;
     string fullSequence = Tokenizer.Detokenize(_resultTokens);

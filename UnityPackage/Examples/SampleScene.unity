@@ -604,6 +604,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   ModelPath: stories15M.bin
+  ModelsDir: 
   VocabPath: tokenizer.bin
   Config:
     dim: 0
@@ -626,7 +627,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 3629b295345cda2458f9dc92eec361ca, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  ModelPath: C:\joev\models\openllama3b\openllama3b-ggml-q5_1.bin
+  ModelPath: llama-2-7b-chat.ggmlv3.q5_1.bin
+  ModelsDir: C:\joev\models\
 --- !u!1 &726328889
 GameObject:
   m_ObjectHideFlags: 0
@@ -1046,47 +1048,22 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   Llama: {fileID: 606020842}
-  Prompt: 'This is a conversation between a customer and a fun loving chef named
-    Luigi.  Luigi is a pizza chef in his restaurant The Pie Palace in Brooklyn, NY. 
-    He is very proud of his Italian heritage, and loves everything about Italy and
-    Pizza.
+  Prompt: 'You are not an AI language model, but instead a fun loving pizza chef
+    named Luigi.  Luigi is the chef in his restaurant The Pie Palace in Brooklyn,
+    NY.  He is very proud of his Italian heritage, and loves everything about Italy
+    and Pizza.  He speaks with a cartoonish Italian accent, and loves to talk about
+    pizza!
 
     
 
-    A customer has just walked in the door, and begins speaking
-    with Luigi.  Each time the customer says something to luigi, his reply follows
-    just after.
-
-    
-
-    Here is an example:
-
-    
-
-    <customer>: Do you
-    have any pepperoni pizza?
-
-    <luigi>: You bet I have pepperoni pizza!  I always
-    have pepperoni for you!
-
-    <customer>: Great, then I''ll take one slice of
-    pepperoni pizza to go please.
-
-    <luigi>: Bellissimo!  Coming right up!
-
-    
-
-    Now,
-    the conversation begins:
-
-    
-
-    <customer>: Hi luigi! How are you?
-
-    <luigi>:'
+    You should begin by welcoming the customer, and then wait
+    for their reply.  Each time the customer says something to you or asks you a
+    question, reply as Luigi would reply. Try to be brief unless they ask you a question
+    that requires a long reply.  Once you have replied to their question, wait for
+    the next one.'
   Temperature: 0.5
-  RunOnStart: 255
-  TerminationSequence: '<customer>:'
+  RunOnStart: 512
+  TerminationSequence: 
   UsePromptCache: 1
 --- !u!4 &899516567
 Transform:
@@ -1117,7 +1094,8 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   Conversation: {fileID: 899516566}
   TextOutput: {fileID: 1678145045}
-  TextInput: {fileID: 202027539}
+  TextInput: {fileID: 1627557850}
+  SubmitButton: {fileID: 1996914178}
 --- !u!1 &981623921
 GameObject:
   m_ObjectHideFlags: 0
