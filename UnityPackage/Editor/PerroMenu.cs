@@ -12,6 +12,8 @@ public class PerroMenu {
     string readmePath = Path.Combine(modelsFolder, "readme.txt");
     if (!Directory.Exists(modelsFolder)) {
       Directory.CreateDirectory(modelsFolder);
+    }
+    if (!File.Exists(readmePath)) {
       string readme =
         "Save ggml model files (from HuggingFace, etc) into this folder to use them in Perror Pastor." +
         "Once you save the file, you have to update the ModelPath in the GGMLLoader component on the Llama" +
