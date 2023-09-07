@@ -140,7 +140,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 0
+  m_IsActive: 1
 --- !u!4 &54362380
 Transform:
   m_ObjectHideFlags: 0
@@ -189,7 +189,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   ModelPath: llama-2-7b-chat.ggmlv3.q5_1.bin
-  ModelsDir: C:\Users\alvio\AppData\LocalLow\PerroPastor\SampleProject\Models
+  ModelsDir: 
   CacheWeights: 1
 --- !u!1 &121381030
 GameObject:
@@ -349,37 +349,37 @@ MonoBehaviour:
     He is very proud of his Italian heritage, and loves everything about Italy and
     Pizza.
 
-    
 
-    A customer has just walked in the door, and begins speaking
-    with Luigi.  Each time the customer says something to luigi, his reply follows
-    just after.
 
-    
+    A customer has just walked in the door, and begins speaking with
+    Luigi.  Each time the customer says something to luigi, his reply follows just
+    after.
+
+
 
     Here is an example:
 
-    
 
-    <customer>: Do you
-    have any pepperoni pizza?
 
-    <luigi>: You bet I have pepperoni pizza!  I always
-    have pepperoni for you!
+    <customer>: Do you have any pepperoni
+    pizza?
 
-    <customer>:<eos> Great, then I''ll take one slice
-    of pepperoni pizza to go please.
+    <luigi>: You bet I have pepperoni pizza!  I always have pepperoni
+    for you!
+
+    <customer>:<eos> Great, then I''ll take one slice of pepperoni
+    pizza to go please.
 
     <luigi>: Bellissimo!  Coming right up!
 
     <customer>:<eos>
 
-    
+
 
     Now,
     the conversation begins:
 
-    
+
 
     <customer>: Hi luigi! How are you?
 
@@ -593,7 +593,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   ModelPath: openllama3b-ggml-q5_1.bin
-  ModelsDir: C:\Users\alvio\AppData\LocalLow\PerroPastor\SampleProject\Models
+  ModelsDir: 
   CacheWeights: 1
 --- !u!114 &468314125
 MonoBehaviour:
@@ -766,37 +766,37 @@ MonoBehaviour:
     and Pizza.  He speaks with a cartoonish Italian accent, and loves to talk about
     pizza!
 
-    
 
-    You should begin by welcoming the customer, and then wait
-    for their reply.  Each time the customer says something to you or asks you a
-    question, reply as Luigi would reply. Try to be brief unless they ask you a question
-    that requires a long reply.  Once you have replied to their question, wait for
-    the next one.
 
-    
+    You should begin by welcoming the customer, and then wait for their
+    reply.  Each time the customer says something to you or asks you a question,
+    reply as Luigi would reply. Try to be brief unless they ask you a question that
+    requires a long reply.  Once you have replied to their question, wait for the
+    next one.
+
+
 
     Example:
 
-    
 
-    <customer>: Do you have any
-    pepperoni pizza?
 
-    <luigi>: You bet I have the pepperoni pizza!  I always
-    have pepperoni for you!
+    <customer>: Do you have any pepperoni pizza?
 
-    <customer>: Great, then I''ll take one slice of
-    pepperoni pizza to go please.
+    <luigi>:
+    You bet I have the pepperoni pizza!  I always have pepperoni for you!
 
-    <luigi>: Bellissimo!  Coming right up!
+    <customer>:
+    Great, then I''ll take one slice of pepperoni pizza to go please.
 
-    
+    <luigi>:
+    Bellissimo!  Coming right up!
 
-    Now,
-    the conversation begins:
 
-    <customer>: Hi luigi! How are you?
+
+    Now, the conversation begins:
+
+    <customer>:
+    Hi luigi! How are you?
 
     <luigi>:'
   Temperature: 0.5
@@ -906,7 +906,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 0
+  m_IsActive: 1
 --- !u!114 &606020842
 MonoBehaviour:
   m_ObjectHideFlags: 0
