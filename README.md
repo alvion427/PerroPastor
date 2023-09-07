@@ -10,8 +10,8 @@ Twitter: [@saganite](https://twitter.com/saganite)
 # Getting Started
 * Clone the repo.
 * Install Unity.  Project is using Unity 2021.3.22f1 but any 2021 LTS or newer version will probably work.
-* A "Perro" menu should appear in Unity, choose "Download Sample Model" to download the model and tokenizer files to StreamingAssets/Models.  This is just a toy model to tell stories.
 * Open the SampleProject.  (From Unity Hub: Open -> Add Project From Disk -> Browse to SampleProject folder)
+* A "Perro" menu should appear in Unity, choose "Download Sample Model" to download the model and tokenizer files to StreamingAssets/Models.  This is just a toy model to tell stories.
 * Open the "Sample Scene"
 * Run the scene!
 * The sample scene is setup to run two other models.  Use the menu Perro -> Open Model Folder to see your models folder and then download the models from the links below:
