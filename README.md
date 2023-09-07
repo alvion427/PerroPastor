@@ -4,6 +4,7 @@ With all of these latin american wild animals running around (Llamas, Alpacas, G
 I also intend this repo to be a good opportunity to learn how LLMs work.  Although compute shaders aren't the most readable form of source code, I have included lots of detailed comments in the C# code which should help demystify what is going on.
 
 Discord: [https://discord.gg/5dXwHjHN](https://discord.gg/5dXwHjHN)
+
 Twitter: [@saganite](https://twitter.com/saganite)
 
 # Getting Started
