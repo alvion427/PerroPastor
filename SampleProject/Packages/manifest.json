@@ -1,6 +1,6 @@
 {
   "dependencies": {
-    "com.cascadetechnologies.perropastor": "file:C:/joev/projects/PerroPastor/UnityPackage",
+    "com.cascadetechnologies.perropastor": "file:../../UnityPackage",
     "com.unity.collab-proxy": "2.0.1",
     "com.unity.feature.development": "1.0.1",
     "com.unity.ide.rider": "3.0.18",

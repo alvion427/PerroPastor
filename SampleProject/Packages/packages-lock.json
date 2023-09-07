@@ -1,7 +1,7 @@
 {
   "dependencies": {
     "com.cascadetechnologies.perropastor": {
-      "version": "file:C:/joev/projects/PerroPastor/UnityPackage",
+      "version": "file:../../UnityPackage",
       "depth": 0,
       "source": "local",
       "dependencies": {
