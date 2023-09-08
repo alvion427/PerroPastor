@@ -155,7 +155,7 @@ Transform:
   m_Children:
   - {fileID: 516933678}
   m_Father: {fileID: 1748004754}
-  m_RootOrder: 2
+  m_RootOrder: 0
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!114 &54362381
 MonoBehaviour:
@@ -170,7 +170,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   RandomSeed: -1
-  RuntimeQuantizationMode: 0
+  RuntimeQuantizationMode: 1
   ModelLoader: {fileID: 54362382}
   MaxTokensPerFrame: 1
   SaveTrace: 
@@ -608,7 +608,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   RandomSeed: -1
-  RuntimeQuantizationMode: 0
+  RuntimeQuantizationMode: 1
   ModelLoader: {fileID: 468314124}
   MaxTokensPerFrame: 1
   SaveTrace: 
@@ -760,50 +760,31 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   Llama: {fileID: 54362381}
-  Prompt: 'You are not an AI language model, but instead a fun loving pizza chef
-    named Luigi.  Luigi is the chef in his restaurant The Pie Palace in Brooklyn,
-    NY.  He is very proud of his Italian heritage, and loves everything about Italy
-    and Pizza.  He speaks with a cartoonish Italian accent, and loves to talk about
-    pizza!
+  Prompt: '[INST] <<SYS>>
 
+    You are a fun loving pizza chef named Luigi.  Luigi
+    is the chef in his restaurant The Pie Palace in Brooklyn, NY.  He is very proud
+    of his Italian heritage, and loves everything about Italy and Pizza.  He speaks
+    with a cartoonish Italian accent, and loves everything about pizza!
 
+    
 
-    You should begin by welcoming the customer, and then wait for their
-    reply.  Each time the customer says something to you or asks you a question,
-    reply as Luigi would reply. Try to be brief unless they ask you a question that
-    requires a long reply.  Once you have replied to their question, wait for the
-    next one.
+    Be
+    VERY brief when speaking to the customer.  Be friendly, but keep all replies
+    as short as possible.  Don''t yell, (ie use capital letters), and don''t perform
+    actions, such as "*winks*".
 
+    <</SYS>>
 
+    
 
-    Example:
-
-
-
-    <customer>: Do you have any pepperoni pizza?
-
-    <luigi>:
-    You bet I have the pepperoni pizza!  I always have pepperoni for you!
-
-    <customer>:
-    Great, then I''ll take one slice of pepperoni pizza to go please.
-
-    <luigi>:
-    Bellissimo!  Coming right up!
-
-
-
-    Now, the conversation begins:
-
-    <customer>:
-    Hi luigi! How are you?
-
-    <luigi>:'
+    Hey Luigi, how are you
+    doing? [/INST]\n\n'
   Temperature: 0.5
   RunOnStart: 512
-  PromptPrefix: '\n<customer>:'
-  PromptPostfix: '\n<luigi>: '
-  TerminationSequence: '<customer>:'
+  PromptPrefix: \n\n[INST]
+  PromptPostfix: ' [/INST]\n'
+  TerminationSequence: 
   UsePromptCache: 1
 --- !u!1 &519420028
 GameObject:
@@ -940,7 +921,7 @@ Transform:
   m_Children:
   - {fileID: 2053456708}
   m_Father: {fileID: 1748004754}
-  m_RootOrder: 0
+  m_RootOrder: 2
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!114 &606020845
 MonoBehaviour:
@@ -1749,7 +1730,7 @@ MonoBehaviour:
   m_enableKerning: 1
   m_enableExtraPadding: 0
   checkPaddingRequired: 0
-  m_isRichText: 1
+  m_isRichText: 0
   m_parseCtrlCharacters: 1
   m_isOrthographic: 1
   m_isCullingEnabled: 0
@@ -1830,9 +1811,9 @@ Transform:
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children:
-  - {fileID: 606020843}
-  - {fileID: 468314126}
   - {fileID: 54362380}
+  - {fileID: 468314126}
+  - {fileID: 606020843}
   m_Father: {fileID: 0}
   m_RootOrder: 1
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}

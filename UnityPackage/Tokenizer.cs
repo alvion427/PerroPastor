@@ -36,8 +36,12 @@ public class Tokenizer {
     return string.Join("", tokens.ConvertAll<string>(x => Detokenize(x)));    
   }
 
-  public NativeArray<int> Tokenize(string text) {
+  public NativeArray<int> Tokenize(string text, bool sos) {
     List<int> tokens = new List<int>();
+
+    if (sos) {
+      tokens.Add(SOS);
+    }
 
     for (int i = 0; i < text.Length; i++) {
       // Replace <sos> and <eos> with appropriate tokens and skip forward

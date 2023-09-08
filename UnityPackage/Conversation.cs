@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Runtime.Serialization.Formatters.Binary;
+using System.Text.RegularExpressions;
 using Unity.Collections;
 using Unity.Mathematics;
 using UnityEngine;
@@ -59,13 +60,14 @@ public class Conversation : MonoBehaviour {
     }
     
     if (!string.IsNullOrEmpty(TerminationSequence)) {
-      var tokens = Tokenizer.Tokenize(TerminationSequence);
+      var tokens = Tokenizer.Tokenize(TerminationSequence, false);
       _terminationTokens = tokens.ToList();
       tokens.Dispose();
     }
 
     if (RunOnStart > 0) {
-      RunTokens(Prompt, RunOnStart);
+      string prompt = Regex.Unescape(Prompt);
+      RunTokens(prompt, RunOnStart);
       _initialPromptLength = _resultTokens.Count;
     }
 
@@ -88,7 +90,7 @@ public class Conversation : MonoBehaviour {
     _sequenceComplete = false;
     
     if (prompt.Length > 0) {
-      var tokenizedPrompt = Llama.Tokenizer.Tokenize(prompt);
+      var tokenizedPrompt = Llama.Tokenizer.Tokenize(prompt, true);
       _resultTokens.AddRange(tokenizedPrompt);
       tokenizedPrompt.Dispose();
     }
@@ -136,13 +138,14 @@ public class Conversation : MonoBehaviour {
   private void SavePromptInCache() {
     string path = GetPromptCachePath();
     Debug.Log("Saving prompt in prompt cache...\n" + path);
+    float startTime = Time.realtimeSinceStartup;
     Directory.CreateDirectory(Path.GetDirectoryName(path));
     using (FileStream fs = new FileStream(path, FileMode.Create))
     {
       BinaryFormatter formatter = new BinaryFormatter();
       formatter.Serialize(fs, Llama.Config);
       formatter.Serialize(fs, Llama.RuntimeQuantizationMode);
-      formatter.Serialize(fs, Prompt);
+      formatter.Serialize(fs, Regex.Unescape(Prompt));
       formatter.Serialize(fs, _resultTokens);
 
       int cacheSize = _resultTokens.Count * Llama.Config.dim;
@@ -157,8 +160,9 @@ public class Conversation : MonoBehaviour {
           formatter.Serialize(fs, values);
         }
         else if (Llama.RuntimeQuantizationMode == QuantizationModes.Float16) {
-          half[] keys = new half[cacheSize];
-          half[] values = new half[cacheSize];
+          // Use short[] prompt cache instead of half because half serializes slow for some reason
+          short[] keys = new short[cacheSize];
+          short[] values = new short[cacheSize];
           _persistentState.layers[l].key_cache.GetData(keys);
           _persistentState.layers[l].value_cache.GetData(values);
           formatter.Serialize(fs, keys);
@@ -166,7 +170,7 @@ public class Conversation : MonoBehaviour {
         }
       }
     }
-    Debug.Log("Done.");
+    Debug.Log("Finished in " + (Time.realtimeSinceStartup - startTime) + "s");
   }
   
   private bool LoadPromptFromCache() {
@@ -201,8 +205,8 @@ public class Conversation : MonoBehaviour {
         }
         else if (Llama.RuntimeQuantizationMode == QuantizationModes.Float16)
         {
-          half[] keys = (half[])formatter.Deserialize(fs);
-          half[] values = (half[])formatter.Deserialize(fs);
+          short[] keys = (short[])formatter.Deserialize(fs);
+          short[] values = (short[])formatter.Deserialize(fs);
           _persistentState.layers[l].key_cache.SetData(keys);
           _persistentState.layers[l].value_cache.SetData(values);
         }
