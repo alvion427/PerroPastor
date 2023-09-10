@@ -19,6 +19,9 @@ Twitter: [@saganite](https://twitter.com/saganite)
   *  [llama-2-7b-chat.ggmlv3.q5_1.bin](https://huggingface.co/TheBloke/Llama-2-7B-Chat-GGML/tree/main)
 *  Toggle the various Llama objects on/off to choose which model to run.  A script will automatically make sure that only one is enabled if you try to run with multiples.
 
+# Known Issues
+* The Quadro M4000 (and very likely other Quadro cards) [don't work](https://github.com/alvion427/PerroPastor/issues/1).
+
 # Thank you Andrej Karpathy!!!
 This project was inspired by Andrej Karpathy's excellent [llama2.c project](https://github.com/karpathy/llama2.c), and owes a huge dept to Andrej and all of his work he has done over the years to support LLM literacy.  I find it so much easier to learn how something REALLY works when it is written in a simple language with no dependencies, rather than trying to peer through all the abstractions of higher level libraries like PyTorch.  You will see that lots of the naming and overall code flow still owes a great deal to llama2.c, although things have already started to diverge quite a bit, and will diverge a lot more in the next few weeks as I make things a bit more conducive to real-time game execution.
 
