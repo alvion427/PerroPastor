@@ -284,7 +284,10 @@ void SoftmaxExp(uint3 id : SV_DispatchThreadID, uint3 gid : SV_GroupThreadID) {
     if (gid.x == 0)
     {
         softmax_groupSumFixed = 0;
-        softmax_maxValue = softmax_max_fixed[0] / kFixedPointScale; 
+        softmax_maxValue = (softmax_max_fixed[0] / kFixedPointScale);
+
+        // HACK!!! See comment in FindMaxValue
+        softmax_maxValue -= 256.0f;
     }
 
     GroupMemoryBarrierWithGroupSync();
@@ -528,7 +531,7 @@ groupshared int findmaxval_groupMaxVal;
 void FindMaxValue(uint3 id : SV_DispatchThreadID, uint3 gid : SV_GroupThreadID) {
     if (gid.x == 0)
     {
-        findmaxval_groupMaxVal = -127 * kFixedPointScale;
+        findmaxval_groupMaxVal = 0;
     }
 
     GroupMemoryBarrierWithGroupSync();
@@ -536,7 +539,13 @@ void FindMaxValue(uint3 id : SV_DispatchThreadID, uint3 gid : SV_GroupThreadID) 
     uint i = id.x;
     if (i < findmaxval_length)
     {
-        int valueFixed = (int)(findmaxval_input[findmaxval_offset + i] * kFixedPointScale);
+        float sourceValue = findmaxval_input[findmaxval_offset + i];
+        // HACK!!!!
+        // InterlockedMax doesn't seem to work with a mix of positive and negative numbers on Vulkan.  Perhaps
+        // because it is interpreting the value as either float or uint?  Not sure.  To fix that, we force the value
+        // to be positive before taking the max, and we will convert it back when converting from fixed point.
+        sourceValue += 256.0f;
+        int valueFixed = (int)(sourceValue * kFixedPointScale);
         InterlockedMax(findmaxval_groupMaxVal, valueFixed);
     }
 
@@ -544,7 +553,6 @@ void FindMaxValue(uint3 id : SV_DispatchThreadID, uint3 gid : SV_GroupThreadID) 
 
     if (gid.x == 0)
     {
-        int groupMax = findmaxval_groupMaxVal;
-        InterlockedMax(findmaxval_output[0], groupMax);
+        InterlockedMax(findmaxval_output[0], findmaxval_groupMaxVal);
     }
 }

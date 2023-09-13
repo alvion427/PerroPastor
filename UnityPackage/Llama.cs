@@ -611,7 +611,7 @@ public class Llama : MonoBehaviour {
       int[] sumData = new int[1];
       sumBuffer.GetData(sumData);
       float sum = (float)sumData[0] / (256.0f * 256.0f);
-      
+
       float[] tempData = new float[_runState.softmaxTemp.ElementCount<float>()];
       _runState.softmaxTemp.GetData(tempData);
 
@@ -706,7 +706,7 @@ public class Llama : MonoBehaviour {
   }
 
   private void FindMaxValue(ComputeBuffer sourceBuffer, ComputeBuffer resultBuffer, int offset, int inputLength) {
-    resultBuffer.SetData(new float[] { -100 * 256 * 256 * 256 });
+    resultBuffer.SetData(new float[] { 0 });
     _llamaShader.SetBuffer(_kernels.findMaxVal, "findmaxval_input", sourceBuffer);
     _llamaShader.SetBuffer(_kernels.findMaxVal, "findmaxval_output", resultBuffer);
     _llamaShader.SetInt("findmaxval_offset", offset);
@@ -714,6 +714,13 @@ public class Llama : MonoBehaviour {
   
     int threadGroupsX = Mathf.CeilToInt(inputLength / 256.0f);
     _llamaShader.Dispatch(_kernels.findMaxVal, threadGroupsX, 1, 1);
+
+    if (_Debug) {
+      int[] maxData = new int[1];
+      resultBuffer.GetData(maxData);
+      float max = (float)maxData[0] / (256.0f * 256.0f);
+      Debug.Log($"Max: {max} ({maxData[0]})");
+    }
   }
 
   private void SampleLogits(ComputeBuffer outputToken, float random) {
