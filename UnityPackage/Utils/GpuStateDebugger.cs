@@ -1,7 +1,6 @@
 using System.Collections.Generic;
 using System.IO;
 using UnityEngine;
-using Directory = UnityEngine.Windows.Directory;
 
 class GpuStateDebugger {
     public enum Modes {

@@ -15,6 +15,7 @@ public class Conversation : MonoBehaviour {
   public string Prompt = "";
   public float Temperature = 0.9f;
   public int RunOnStart = 0;
+  public bool Repeat = false;
 
   public string PromptPrefix = "\\n";
   public string PromptPostfix = "\\n";
@@ -126,6 +127,14 @@ public class Conversation : MonoBehaviour {
     string fullSequence = Tokenizer.Detokenize(_resultTokens);
     Debug.Log("Sequence complete: " + fullSequence);
     OnSequenceComplete?.Invoke(fullSequence);
+
+    if (Repeat) {
+      _pos = 0;
+      _sequenceComplete = false;
+      _initialPromptLength = -1;
+      _resultTokens.Clear();
+      RunTokens(Prompt, RunOnStart);
+    }
   }
 
   private string GetPromptCachePath() {

@@ -7,7 +7,6 @@ using System.Threading.Tasks;
 using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Mathematics;
-using Unity.VisualScripting.Antlr3.Runtime;
 using UnityEditor;
 using UnityEngine;
 
@@ -25,12 +24,14 @@ public class GGMLLoader : ModelLoaderBase {
   private static CachedWeights _cachedWeights;
 
   static GGMLLoader() {
+#if UNITY_EDITOR
     AssemblyReloadEvents.beforeAssemblyReload += () => {
       if (_cachedWeights != null) {
         _cachedWeights.Weights.RemoveReference();
         _cachedWeights = null;
       }
-    };    
+    };
+#endif
   }
   
   public static GGMLMetaData LoadMetadata(string path) {
@@ -239,8 +240,10 @@ public class GGMLLoader : ModelLoaderBase {
       var sourceArray =
         NativeArrayUnsafeUtility.ConvertExistingDataToNativeArray<byte>(tensorPtr, (int)tensor.SizeBytes, Allocator.None);
 
+#if ENABLE_UNITY_COLLECTIONS_CHECKS
       var safety = AtomicSafetyHandle.Create();
       NativeArrayUnsafeUtility.SetAtomicSafetyHandle(ref sourceArray, safety);
+#endif
       
       tensor.Buffer.SetData(sourceArray);
     }
