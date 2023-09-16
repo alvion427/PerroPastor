@@ -434,13 +434,17 @@ public class Llama : MonoBehaviour {
     _llamaShader.SetBuffer(_kernels.matmul, "matmul_vectorX", vectorX);
     _llamaShader.SetBuffer(_kernels.matmul, "matmul_vectorOut", vectorOut);
     _llamaShader.SetInt("matmul_rows", rows);
+    _llamaShader.SetInt("matmul_cols", cols);
     _llamaShader.SetInt("matmul_blocksPerRow", blocksPerRow);
     
-    int threadGroupsX = Mathf.CeilToInt(rows / 256.0f);
+    int threadGroupsX = Mathf.CeilToInt(rows / 128.0f);
     _llamaShader.Dispatch(_kernels.matmul, threadGroupsX, 1, 1);
     Profiler.EndSample();
 
     if (_Debug) {
+      float[] inputData = new float[vectorX.ElementCount<float>()];
+      vectorX.GetData(inputData);
+
       float[] resultData = new float[vectorOut.ElementCount<float>()];
       vectorOut.GetData(resultData);
       string debugString = string.Join(", ", new ArraySegment<float>(resultData, 0, 8));

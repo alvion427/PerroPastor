@@ -133,22 +133,49 @@ void LoadEmbedding(uint3 id : SV_DispatchThreadID) {
 #pragma kernel MatMul
 
 StructuredBuffer<WEIGHT_BLOCK_TYPE> matmul_matrixW;
-StructuredBuffer<float4> matmul_vectorX;
+StructuredBuffer<float> matmul_vectorX;
 RWStructuredBuffer<float> matmul_vectorOut;
 uint matmul_rows;
+uint matmul_cols;
 uint matmul_blocksPerRow;
 
-[numthreads(kThreadsPerGroup, 1, 1)]
-void MatMul(uint3 id : SV_DispatchThreadID) {
+#define MATMUL_CACHE_SIZE 8 * 1024
+groupshared float matmul_vectorXCache[MATMUL_CACHE_SIZE];
+
+#define kMatmulThreads 128
+
+[numthreads(kMatmulThreads, 1, 1)]
+void MatMul(uint3 id : SV_DispatchThreadID, uint3 gid : SV_GroupThreadID) {
+    {
+        // Move X into groupshared memory
+        uint colsPerThread = (matmul_cols + kMatmulThreads - 1) / kMatmulThreads;
+        uint colStart = gid.x * colsPerThread;
+        uint colEnd = min(colStart + colsPerThread, matmul_cols);
+        for (uint c = colStart; c < colEnd; ++c)
+        {
+            matmul_vectorXCache[c] = matmul_vectorX[c];
+        }
+    }
+
+    GroupMemoryBarrierWithGroupSync();
+    
     uint row = id.x;
     if (row >= matmul_rows) return;
-    
+
     float sum = 0;
 #if !WEIGHT_IS_QUANTIZED    
-    for (uint col = 0; col < matmul_blocksPerRow; col++) {
-        float4 a = LOAD_WEIGHT(matmul_matrixW[row * matmul_blocksPerRow + col]);
-        float4 b = matmul_vectorX[col];
-        sum += dot(a, b);
+    for (uint colVec = 0; colVec < matmul_blocksPerRow; colVec++) {
+        float4 aVal = LOAD_WEIGHT(matmul_matrixW[row * matmul_blocksPerRow + colVec]);
+        float4 bVal;
+        if (colVec < MATMUL_CACHE_SIZE / 4)
+        {
+            bVal = GetVector(matmul_vectorXCache, colVec);
+        }
+        else
+        {
+            bVal = GetVector(matmul_vectorX, colVec);
+        }
+        sum += dot(aVal, bVal);
     }
 #else
     for (uint b = 0; b < matmul_blocksPerRow; ++b)
@@ -158,10 +185,20 @@ void MatMul(uint3 id : SV_DispatchThreadID) {
         [unroll]
         for (uint valueIndex = 0; valueIndex < WEIGHT_BLOCK_VEC; ++valueIndex)
         {
-            uint col = b * WEIGHT_BLOCK_VEC + valueIndex;
-            float4 a = DECODE_WEIGHT(block, valueIndex);
-            float4 b = matmul_vectorX[col];
-            sum += dot(a, b);
+            float4 aVal = DECODE_WEIGHT(block, valueIndex);
+            
+            uint colVec = b * WEIGHT_BLOCK_VEC + valueIndex;
+            float4 bVal;
+            if (colVec < MATMUL_CACHE_SIZE / 4)
+            {
+                bVal = GetVector(matmul_vectorXCache, colVec);
+            }
+            else
+            {
+                bVal = GetVector(matmul_vectorX, colVec);
+            }
+            sum += dot(aVal, bVal);
+
         }
     }
 

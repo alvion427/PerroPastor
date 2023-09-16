@@ -2,6 +2,13 @@
 
 #define kFixedPointScale (256.0f * 256.0f)
 
+#define GetVector(b, idx) float4( \
+    b[idx * 4 + 0], \
+    b[idx * 4 + 1], \
+    b[idx * 4 + 2], \
+    b[idx * 4 + 3]);
+
+
 struct Q8_0_Block
 {
     float scale;
@@ -63,7 +70,7 @@ void Encode_Q5_1(float4 v, out Q5_1_Block block, int valueIndex)
     block.values[0] = 0;
 }
 
-float4 Decode_Q5_1(Q5_1_Block block, int valueIndex)
+float4 Decode_Q5_1(Q5_1_Block block, uint valueIndex)
 {
     const float scale = f16tof32(block.scaleAndMin & 0xFFFF);
     const float min = f16tof32(block.scaleAndMin >> 16);
@@ -77,6 +84,7 @@ float4 Decode_Q5_1(Q5_1_Block block, int valueIndex)
     }
 
     float4 result;
+    [unroll]
     for (int i = 0; i < 4; ++i)
     {
       const float f = (hb & 0x10) | (v & 0xf);
