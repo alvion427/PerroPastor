@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using TMPro;
 using UnityEngine;
@@ -11,6 +12,7 @@ public class Llama : MonoBehaviour {
 
   public Tokenizer Tokenizer => _tokenizer;
   public LlamaConfig Config => _config;
+  public WeightsGpu Weights => _weightsGpu;
   public QuantizationModes RuntimeQuantizationMode = QuantizationModes.Float32;
   public ModelLoaderBase ModelLoader;
   private ComputeShader _llamaShader;
@@ -77,7 +79,7 @@ public class Llama : MonoBehaviour {
     if (!_isInitialized) {
       return;
     }
-    
+
     foreach (Conversation c in _conversations)
     {
       int tokensProcessedThisFrame = 0;

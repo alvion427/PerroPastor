@@ -1,5 +1,6 @@
-#pragma multi_compile QUANT_SOURCE_32 QUANT_SOURCE_16 QUANT_SOURCE_Q8_0
+#pragma multi_compile QUANT_SOURCE_32 QUANT_SOURCE_16 QUANT_SOURCE_Q8_0 QUANT_SOURCE_Q5_1
 #pragma multi_compile QUANT_DEST_32 QUANT_DEST_16 QUANT_DEST_Q8_0
+//#define QUANT_SOURCE_Q8_0 1
 
 #include "Common.cginc"
 
@@ -8,6 +9,12 @@
     #define STORE_SOURCE StoreVec16f
     #define LOAD_SOURCE LoadVec16f
     #define SOURCE_IS_QUANTIZED 0
+#elif QUANT_SOURCE_Q5_1
+    #define SOURCE_BLOCK_VEC 8
+    #define SOURCE_BLOCK_TYPE Q5_1_Block
+    #define ENCODE_SOURCE Encode_Q5_1
+    #define DECODE_SOURCE Decode_Q5_1
+    #define SOURCE_IS_QUANTIZED 1
 #elif QUANT_SOURCE_Q8_0
     #define SOURCE_BLOCK_VEC 8
     #define SOURCE_BLOCK_TYPE Q8_0_Block
@@ -107,8 +114,6 @@ void Dequantize(uint3 id : SV_DispatchThreadID)
     const SOURCE_BLOCK_TYPE block = dequantize_input[sourceIndex];
     int destIndex = sourceIndex * SOURCE_BLOCK_VEC;
 
-    const float scale = block.scale;
-
     [unroll]
     for (uint valueIndex = 0; valueIndex < SOURCE_BLOCK_VEC; ++valueIndex)
     {
@@ -116,4 +121,91 @@ void Dequantize(uint3 id : SV_DispatchThreadID)
         dequantize_output[destIndex + valueIndex] = STORE_DEST(v);
     }
 #endif
+}
+
+#pragma kernel BlitToTexture
+
+StructuredBuffer<SOURCE_BLOCK_TYPE> blit_input;
+RWTexture2D<float> blit_output;
+StructuredBuffer<int> blit_minmax;
+uint blit_blockWidth;
+uint blit_height;
+
+[numthreads(32, 32, 1)]
+void BlitToTexture(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= blit_blockWidth || id.y >= blit_height)
+        return;
+
+    float minVal = blit_minmax[0] / kFixedPointScale;
+    float maxVal = blit_minmax[1] / kFixedPointScale;
+    float range = maxVal - minVal;
+
+#if !SOURCE_IS_QUANTIZED
+    uint index = id.y * blit_blockWidth + id.x;
+    float4 v = LOAD_SOURCE(blit_input[index]);
+
+    for (int i = 0; i < 4; ++i)
+    {
+        float p = (v[i] - minVal) / range;
+        uint x = id.x * 4 + i;
+        blit_output[uint2(x, id.y)] = p;
+    }
+
+#else
+    uint index = id.y * blit_blockWidth + id.x;
+    const SOURCE_BLOCK_TYPE block = blit_input[index];
+
+    for (uint valueIndex = 0; valueIndex < SOURCE_BLOCK_VEC; ++valueIndex)
+    {
+        float4 v = DECODE_SOURCE(block, valueIndex);
+
+        for (int i = 0; i < 4; ++i)
+        {
+            float p = (v[i] - minVal) / range;
+            uint x = id.x * SOURCE_BLOCK_VEC * 4 + valueIndex * 4 + i;
+            blit_output[uint2(x, id.y)] = p;
+        }
+    }
+#endif
+}
+
+#pragma kernel FindRange
+
+StructuredBuffer<SOURCE_BLOCK_TYPE> findrange_input;
+RWStructuredBuffer<int2> findrange_output;
+uint findrange_blockCount;
+
+[numthreads(1024, 1, 1)]
+void FindRange(uint3 id : SV_DispatchThreadID)
+{
+    uint index = id.x;
+    if (index >= findrange_blockCount)
+        return;
+
+    float minVal = 100000;
+    float maxVal = -minVal;
+
+#if !SOURCE_IS_QUANTIZED
+    float4 v = LOAD_SOURCE(findrange_input[index]);
+    minVal = min(minVal, min(min(v.x, v.y), min(v.z, v.w)));
+    maxVal = max(maxVal, max(max(v.x, v.y), max(v.z, v.w)));
+
+#else
+    const SOURCE_BLOCK_TYPE block = findrange_input[index];
+
+    for (uint valueIndex = 0; valueIndex < SOURCE_BLOCK_VEC; ++valueIndex)
+    {
+        float4 v = DECODE_SOURCE(block, valueIndex);
+        minVal = min(minVal, min(min(v.x, v.y), min(v.z, v.w)));
+        maxVal = max(maxVal, max(max(v.x, v.y), max(v.z, v.w)));
+    }
+#endif
+
+    int minFixed = (int)(minVal * kFixedPointScale);
+    int maxFixed = (int)(maxVal * kFixedPointScale);
+
+    // TODO: Add groupshared min/max
+    InterlockedMin(findrange_output[0].x, minFixed);
+    InterlockedMax(findrange_output[0].y, maxFixed);
 }

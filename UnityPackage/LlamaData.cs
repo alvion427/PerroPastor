@@ -1,11 +1,5 @@
 using System;
-using System.Collections;
-using System.Collections.Generic;
-using System.Runtime.InteropServices;
-using Unity.Collections;
-using Unity.Mathematics;
 using UnityEngine;
-using UnityEngine.Profiling.Memory.Experimental;
 
 [Serializable]
 public class LlamaConfig {
@@ -50,6 +44,8 @@ public class GpuTensor : IDisposable {
   public QuantizationModes Mode;
   public ComputeBuffer Buffer;
 
+  public int Rows => Shape.x;
+  public int Cols => Shape.y;
   public long Size => Shape.x * Shape.y;
   public long SizeBytes => Buffer.count * BlockSizeBytes;
   public int BlockCount => (int)(Size / BlockSize);
@@ -60,6 +56,10 @@ public class GpuTensor : IDisposable {
     Shape = new Vector2Int(rows, cols);
     Mode = mode;
     Buffer = ComputeUtils.CreateBlockBuffer(rows * cols, mode);
+  }
+
+  public RenderTexture ConvertToTexture() {
+    return ComputeUtils.BlitToTexture(Mode, Buffer, Cols, Rows);
   }
 
   public void Dispose() {

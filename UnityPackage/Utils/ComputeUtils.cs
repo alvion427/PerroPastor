@@ -2,11 +2,14 @@ using System.Runtime.InteropServices;
 using Unity.Collections;
 using Unity.Mathematics;
 using UnityEngine;
+using UnityEngine.Experimental.Rendering;
 
 public static class ComputeUtils {
   private static ComputeShader _computeShader;
   private static int _quantizeKernel = -1;
   private static int _dequantizeKernel = -1;
+  private static int _blitKernel = -1;
+  private static int _findRangeKernel = -1;
 
   // This is needed to avoid domain reloading between projects
   public static void Reset() {
@@ -114,11 +117,59 @@ public static class ComputeUtils {
     stagingBuffer.Dispose();
   }
 
+    public static void FindRange(QuantizationModes sourceMode, ComputeBuffer inputBuffer, ComputeBuffer resultBuffer) {
+      _loadShader(sourceMode, QuantizationModes.Float32);
+
+      int blockCount = inputBuffer.count;
+      _computeShader.SetBuffer(_findRangeKernel, "findrange_input", inputBuffer);
+      _computeShader.SetBuffer(_findRangeKernel, "findrange_output", resultBuffer);
+      _computeShader.SetInt("findrange_blockCount", blockCount);
+      int threadGroupsX = Mathf.CeilToInt(blockCount / 1024.0f);
+      _computeShader.Dispatch(_findRangeKernel, threadGroupsX, 1, 1);
+    }
+
+    public static RenderTexture BlitToTexture(QuantizationModes sourceMode, ComputeBuffer buffer, int width, int height) {
+      RenderTexture result = new RenderTexture(width, height, 0, RenderTextureFormat.R8);
+      result.enableRandomWrite = true;
+      result.Create();
+      BlitToTexture(sourceMode, buffer, width, height, result);
+      return result;
+    }
+
+    public static void BlitToTexture(QuantizationModes sourceMode, ComputeBuffer buffer, int width, int height, RenderTexture result) {
+      _loadShader(sourceMode, QuantizationModes.Q8_0);
+      
+      ComputeBuffer minmaxBuffer = new ComputeBuffer(2, sizeof(int));
+      minmaxBuffer.SetData(new int[] { 100 * 256 * 256 * 256, -100 * 256 * 256 * 256 });
+      FindRange(sourceMode, buffer, minmaxBuffer);
+      
+      int[] minmax = new int[2];
+      minmaxBuffer.GetData(minmax);
+      float min = minmax[0] / (256.0f * 256.0f);
+      float max = minmax[1] / (256.0f * 256.0f);
+
+      int blockWidth = width / sourceMode.BlockSize();
+      
+      _computeShader.SetBuffer(_blitKernel, "blit_input", buffer);
+      _computeShader.SetTexture(_blitKernel, "blit_output", result);
+      _computeShader.SetBuffer(_blitKernel, "blit_minmax", minmaxBuffer);
+      _computeShader.SetInt("blit_blockWidth", blockWidth);
+      _computeShader.SetFloat("blit_height", height);
+      
+      int threadGroupsX = Mathf.CeilToInt(blockWidth / 32.0f);
+      int threadGroupsY = Mathf.CeilToInt(height / 32.0f);
+      _computeShader.Dispatch(_blitKernel, threadGroupsX, threadGroupsY, 1);
+      
+      minmaxBuffer.Dispose();
+    }
+
   private static void _loadShader(QuantizationModes sourceMode, QuantizationModes destMode) {
     if (_computeShader == null) {
       _computeShader = Resources.Load<ComputeShader>("ComputeUtils");
       _quantizeKernel = _computeShader.FindKernel("Quantize");
       _dequantizeKernel = _computeShader.FindKernel("Dequantize");
+      _blitKernel = _computeShader.FindKernel("BlitToTexture");
+      _findRangeKernel = _computeShader.FindKernel("FindRange");
     }
     QuantizationUtil.EnableQuantizationKeywords(_computeShader, sourceMode, "SOURCE");
     QuantizationUtil.EnableQuantizationKeywords(_computeShader, destMode, "DEST");

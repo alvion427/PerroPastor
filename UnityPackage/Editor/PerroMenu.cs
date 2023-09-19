@@ -34,6 +34,18 @@ public class PerroMenu {
       Path.Combine(Application.persistentDataPath, "Models/tokenizer.bin"));
   }
 
+  [MenuItem("Perro/Export Weights Textures")]
+  public static void ExportWeightsTextures() {
+    Llama llama = GameObject.FindObjectOfType<Llama>();
+    if (llama == null) {
+      Debug.LogError("No Llama instance found");
+      return;
+    }
+
+    string path = Path.Combine(Application.persistentDataPath, "weights_export");
+    WeightTextureExport.ExportWeights(llama.Config, llama.Weights, path);
+  }
+
   public static void DownloadFile(string url, string savePath) {
     if (File.Exists(savePath)) {
       Debug.Log($"Skipping {Path.GetFileName(savePath)}, it already exists");
