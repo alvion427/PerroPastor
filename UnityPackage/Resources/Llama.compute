@@ -134,77 +134,90 @@ void LoadEmbedding(uint3 id : SV_DispatchThreadID) {
 
 StructuredBuffer<WEIGHT_BLOCK_TYPE> matmul_matrixW;
 StructuredBuffer<float> matmul_vectorX;
-RWStructuredBuffer<float> matmul_vectorOut;
+RWStructuredBuffer<int> matmul_vectorOutFixed;
 uint matmul_rows;
 uint matmul_cols;
 uint matmul_blocksPerRow;
 
-#define MATMUL_CACHE_SIZE 8 * 1024
-groupshared float matmul_vectorXCache[MATMUL_CACHE_SIZE];
+#define kMatmulGroupRows 32
+#define kMatmulGroupCols 1024
 
-#define kMatmulThreads 128
+// A "superblock" is 32 columns. This is equal to one block for quantized formats, and 8 blocks of 4 values for
+// non-quantized.
+#define kMatmulGroupSuperBlocks (kMatmulGroupCols / 32) 
 
-[numthreads(kMatmulThreads, 1, 1)]
-void MatMul(uint3 id : SV_DispatchThreadID, uint3 gid : SV_GroupThreadID) {
+groupshared float matmul_vectorXCache[kMatmulGroupCols];
+groupshared int matmul_groupOutput[kMatmulGroupRows];
+
+// We need to write out one group output per group
+//groupshared int matmul_groupOutput[kMatmulMaxRows / kMatmulGroupRows];
+
+// So, dispatch group size is 32x32 for 1024 threads.
+// Each group covers 1024 columns and 32 rows.
+// x is row, and y is column (opposite of in graphics)
+[numthreads(kMatmulGroupRows, kMatmulGroupSuperBlocks, 1)]
+void MatMul(uint3 id : SV_DispatchThreadID, uint3 gid : SV_GroupThreadID, uint3 groupId : SV_GroupID) {
+
+    // Init group output
+    if (gid.y == 0)
     {
-        // Move X into groupshared memory
-        uint colsPerThread = (matmul_cols + kMatmulThreads - 1) / kMatmulThreads;
-        uint colStart = gid.x * colsPerThread;
-        uint colEnd = min(colStart + colsPerThread, matmul_cols);
-        for (uint c = colStart; c < colEnd; ++c)
-        {
-            matmul_vectorXCache[c] = matmul_vectorX[c];
-        }
+        matmul_groupOutput[gid.x] = 0;
+    }
+
+    // Load the values of X we care about into groupshared memory
+    uint gidFlat = gid.y * kMatmulGroupRows + gid.x;
+    if (gidFlat < min(kMatmulGroupCols, matmul_cols))
+    {
+        matmul_vectorXCache[gidFlat] = matmul_vectorX[groupId.y * kMatmulGroupCols + gidFlat];
     }
 
     GroupMemoryBarrierWithGroupSync();
-    
-    uint row = id.x;
-    if (row >= matmul_rows) return;
+
+    // x is row, y is column
+    const uint row = id.x;
 
     float sum = 0;
-#if !WEIGHT_IS_QUANTIZED    
-    for (uint colVec = 0; colVec < matmul_blocksPerRow; colVec++) {
-        float4 aVal = LOAD_WEIGHT(matmul_matrixW[row * matmul_blocksPerRow + colVec]);
-        float4 bVal;
-        if (colVec < MATMUL_CACHE_SIZE / 4)
+#if !WEIGHT_IS_QUANTIZED
+    if (id.y * 8 < matmul_blocksPerRow)
+    {
+        [unroll]
+        for (uint colVec = 0; colVec < 8; ++colVec)
         {
-            bVal = GetVector(matmul_vectorXCache, colVec);
+            float4 aVal = LOAD_WEIGHT(matmul_matrixW[row * matmul_blocksPerRow + id.y * 8 + colVec]);
+            const uint inputIdx = (gid.y * 8 + colVec);
+            float4 bVal = GetVector(matmul_vectorXCache, inputIdx);
+            sum += dot(aVal, bVal);
         }
-        else
-        {
-            bVal = GetVector(matmul_vectorX, colVec);
-        }
-        sum += dot(aVal, bVal);
     }
 #else
-    for (uint b = 0; b < matmul_blocksPerRow; ++b)
+    if (id.y < matmul_blocksPerRow)
     {
-        const WEIGHT_BLOCK_TYPE block = matmul_matrixW[row * matmul_blocksPerRow + b];
-        
+        uint blockIdx = row * matmul_blocksPerRow + id.y;
+        const WEIGHT_BLOCK_TYPE block = matmul_matrixW[blockIdx];
+    
         [unroll]
         for (uint valueIndex = 0; valueIndex < WEIGHT_BLOCK_VEC; ++valueIndex)
         {
             float4 aVal = DECODE_WEIGHT(block, valueIndex);
-            
-            uint colVec = b * WEIGHT_BLOCK_VEC + valueIndex;
-            float4 bVal;
-            if (colVec < MATMUL_CACHE_SIZE / 4)
-            {
-                bVal = GetVector(matmul_vectorXCache, colVec);
-            }
-            else
-            {
-                bVal = GetVector(matmul_vectorX, colVec);
-            }
+            const uint inputIdx = (gid.y * 8) + valueIndex;
+            float4 bVal = GetVector(matmul_vectorXCache, inputIdx);
             sum += dot(aVal, bVal);
 
         }
     }
-
 #endif
+    
+    // Each thread accumulates the results of its superblock into the groupshared memory.  There is one value per row.
+    const int sumFixed = (int)(sum * kFixedPointScale);
+    InterlockedAdd(matmul_groupOutput[gid.x], sumFixed);
 
-    matmul_vectorOut[row] = sum;
+    GroupMemoryBarrierWithGroupSync();
+
+    // One thread per row, per group accumulates the results in the final result
+    if (gid.y == 0)
+    {
+        InterlockedAdd(matmul_vectorOutFixed[id.x], matmul_groupOutput[gid.x]);
+    }
 }
 
 /// Accumulate

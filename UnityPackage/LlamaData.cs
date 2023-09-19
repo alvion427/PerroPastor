@@ -205,14 +205,16 @@ public class RunState : IDisposable {
   public ComputeBuffer x;
   public ComputeBuffer xb; // same, but inside a residual branch (dim,)
   public ComputeBuffer xb2; // an additional buffer just for convenience (dim,)
-  public ComputeBuffer xbFixed; // used to output weighted sum as fixed point to use atomics
+  public ComputeBuffer xbFixed; // used to output (dim,) vectors as fixed point
   public ComputeBuffer hb; // buffer for hidden dimension in the ffn (hidden_dim,)
   public ComputeBuffer hb2; // buffer for hidden dimension in the ffn (hidden_dim,)
+  public ComputeBuffer hbFixed; // used to output (hidden_dim,) vectors as fixed point
   public ComputeBuffer q; // query (dim,)
   public ComputeBuffer k; // key (dim,)
   public ComputeBuffer v; // value (dim,)
   public ComputeBuffer att; // buffer for scores/attention values (n_heads, seq_len)
   public ComputeBuffer logits; // output logits
+  public ComputeBuffer logitsFixed;
 
   // Due to a very bad implementation of softmax we need to use a temporary buffer, but we can remove this once we
   // improve it.
@@ -229,11 +231,13 @@ public class RunState : IDisposable {
     xbFixed = new ComputeBuffer(c.dim, sizeof(int));
     hb = new ComputeBuffer(c.hidden_dim, sizeof(float));
     hb2 = new ComputeBuffer(c.hidden_dim, sizeof(float));
+    hbFixed = new ComputeBuffer(c.hidden_dim, sizeof(int));
     q = new ComputeBuffer(c.dim, sizeof(float));
     k = new ComputeBuffer(c.dim, sizeof(float));
     v = new ComputeBuffer(c.dim, sizeof(float));
     att = new ComputeBuffer(c.n_heads * c.seq_len, sizeof(float));
     logits = new ComputeBuffer(c.vocab_size, sizeof(float));
+    logitsFixed = new ComputeBuffer(c.vocab_size, sizeof(int));
 
     softmaxTemp = new ComputeBuffer(c.vocab_size, sizeof(float));
     softmaxTempB = new ComputeBuffer(c.vocab_size, sizeof(float));
@@ -249,11 +253,13 @@ public class RunState : IDisposable {
     xbFixed.Dispose();
     hb.Dispose();
     hb2.Dispose();
+    hbFixed.Dispose();
     q.Dispose();
     k.Dispose();
     v.Dispose();
     att.Dispose();
     logits.Dispose();
+    logitsFixed.Dispose();
     softmaxTemp.Dispose();
     softmaxTempB.Dispose();
     scalarTemp0.Dispose();

@@ -178,6 +178,7 @@ public class Llama : MonoBehaviour {
       // are stored in the (dim,) vectors q, k, and v respectively.  You can think of this at the query, key, and
       // value vectors for the current token.
       MatMul(_weightsGpu.layerWeights[l].wq, _runState.xb, _runState.q, dim, dim);
+
       MatMul(_weightsGpu.layerWeights[l].wk, _runState.xb, _runState.k, dim, dim);
       MatMul(_weightsGpu.layerWeights[l].wv, _runState.xb, _runState.v, dim, dim);
 
@@ -279,7 +280,7 @@ public class Llama : MonoBehaviour {
       Accumulate(_runState.x, _runState.xb, dim);
       _gpuStateDebugger?.ProcessState($"token{pos}_layer{l}_accumulate_ffn", _runState.x);
     }
-    
+
     // Final rmsnorm of all layer results
     RmsNorm(_runState.x, _weightsGpu.rms_final_weight, _runState.xb, dim);
     _gpuStateDebugger?.ProcessState($"token{pos}_final_rmsnorm", _runState.xb);
@@ -427,29 +428,54 @@ public class Llama : MonoBehaviour {
   private void MatMul(GpuTensor matrixW, ComputeBuffer vectorX, ComputeBuffer vectorOut, int rows, int cols) {
     Profiler.BeginSample("Matmul");
 
+    ComputeBuffer vectorOutFixed;
+    if (vectorOut.ElementCount<float>() == _runState.xbFixed.ElementCount<int>()) {
+      vectorOutFixed = _runState.xbFixed;
+    }
+    else if (vectorOut.ElementCount<float>() == _runState.hbFixed.ElementCount<int>()) {
+      vectorOutFixed = _runState.hbFixed;
+    }
+    else if (vectorOut.ElementCount<float>() == _runState.logitsFixed.ElementCount<int>()) {
+      vectorOutFixed = _runState.logitsFixed;
+    }
+    else {
+      Debug.LogError("No avialable fixed point temp buffer for size: " + vectorOut.ElementCount<float>());
+      return;
+    }
+    
+    ClearBuffer(vectorOutFixed);
+
     int blocksPerRow = cols / matrixW.BlockSize;
 
     // W (d,n) @ x (n,) -> xout (d,)
     _llamaShader.SetBuffer(_kernels.matmul, "matmul_matrixW", matrixW);
     _llamaShader.SetBuffer(_kernels.matmul, "matmul_vectorX", vectorX);
-    _llamaShader.SetBuffer(_kernels.matmul, "matmul_vectorOut", vectorOut);
+    _llamaShader.SetBuffer(_kernels.matmul, "matmul_vectorOutFixed", vectorOutFixed);
     _llamaShader.SetInt("matmul_rows", rows);
     _llamaShader.SetInt("matmul_cols", cols);
     _llamaShader.SetInt("matmul_blocksPerRow", blocksPerRow);
     
-    int threadGroupsX = Mathf.CeilToInt(rows / 128.0f);
-    _llamaShader.Dispatch(_kernels.matmul, threadGroupsX, 1, 1);
+    int threadGroupsX = Mathf.CeilToInt(rows / 32.0f);
+    int threadGroupsY = Mathf.CeilToInt(cols / 1024.0f);
+    _llamaShader.Dispatch(_kernels.matmul, threadGroupsX, threadGroupsY, 1);
     Profiler.EndSample();
 
     if (_Debug) {
       float[] inputData = new float[vectorX.ElementCount<float>()];
       vectorX.GetData(inputData);
 
-      float[] resultData = new float[vectorOut.ElementCount<float>()];
-      vectorOut.GetData(resultData);
-      string debugString = string.Join(", ", new ArraySegment<float>(resultData, 0, 8));
+      int[] resultData = new int[vectorOutFixed.ElementCount<int>()];
+      vectorOutFixed.GetData(resultData);
+      float[] floatData = new float[resultData.Length];
+      for (uint i = 0; i < resultData.Length; ++i) {
+        floatData[i] = (float)resultData[i] / (256.0f * 256.0f);
+      }
+      
+      string debugString = string.Join(", ", new ArraySegment<float>(floatData, 0, 8));
       Debug.Log(debugString);
     }
+    
+    FixedToFloat(vectorOutFixed, vectorOut, vectorOut.ElementCount<float>());
   }
 
   private void Accumulate(ComputeBuffer bufferA, ComputeBuffer bufferB, int length) {

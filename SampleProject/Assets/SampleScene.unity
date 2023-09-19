@@ -140,7 +140,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 0
+  m_IsActive: 1
 --- !u!4 &54362380
 Transform:
   m_ObjectHideFlags: 0
@@ -389,7 +389,7 @@ MonoBehaviour:
   Repeat: 0
   PromptPrefix: 
   PromptPostfix: \n
-  TerminationSequence: 
+  TerminationSequence: '<customer>:'
   UsePromptCache: 1
 --- !u!1 &202027537
 GameObject:
@@ -628,7 +628,6 @@ Transform:
   m_ConstrainProportionsScale: 0
   m_Children:
   - {fileID: 157739465}
-  - {fileID: 1808540160}
   m_Father: {fileID: 1748004754}
   m_RootOrder: 1
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
@@ -890,7 +889,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 0
+  m_IsActive: 1
 --- !u!114 &606020842
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -904,7 +903,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   RandomSeed: -1
-  RuntimeQuantizationMode: 0
+  RuntimeQuantizationMode: 1
   ModelLoader: {fileID: 0}
   MaxTokensPerFrame: 1
   SaveTrace: 
@@ -1955,81 +1954,6 @@ CanvasRenderer:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1779662804}
   m_CullTransparentMesh: 1
---- !u!1 &1808540159
-GameObject:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  serializedVersion: 6
-  m_Component:
-  - component: {fileID: 1808540160}
-  - component: {fileID: 1808540162}
-  - component: {fileID: 1808540161}
-  m_Layer: 0
-  m_Name: Conversation-OpenLlama3b (1)
-  m_TagString: Untagged
-  m_Icon: {fileID: 0}
-  m_NavMeshLayer: 0
-  m_StaticEditorFlags: 0
-  m_IsActive: 0
---- !u!4 &1808540160
-Transform:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1808540159}
-  m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
-  m_LocalPosition: {x: 0, y: 0, z: 0}
-  m_LocalScale: {x: 1, y: 1, z: 1}
-  m_ConstrainProportionsScale: 0
-  m_Children: []
-  m_Father: {fileID: 468314126}
-  m_RootOrder: 1
-  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!114 &1808540161
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1808540159}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 67472cf6de68ba7408a1ff3f0648ff1a, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
-  Conversation: {fileID: 1808540162}
-  TextOutput: {fileID: 1678145045}
-  TextInput: {fileID: 1627557850}
-  SubmitButton: {fileID: 1996914178}
---- !u!114 &1808540162
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1808540159}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: f6a4210d14be1fa4db4ab00e64820fe7, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
-  Llama: {fileID: 468314125}
-  Prompt: '\n\nThis is a story about Alvion, a young rogue who started from humble
-    beginnings in a small village, but grew to be one of the most powerful lords
-    in the land.
-
-
-    It all started when he was a young boy.'
-  Temperature: 0.5
-  RunOnStart: 512
-  Repeat: 1
-  PromptPrefix: 
-  PromptPostfix: \n
-  TerminationSequence: 
-  UsePromptCache: 1
 --- !u!1 &1996914176
 GameObject:
   m_ObjectHideFlags: 0
@@ -2227,7 +2151,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   Llama: {fileID: 606020842}
   Prompt: 
-  Temperature: 0
+  Temperature: 0.9
   RunOnStart: 255
   Repeat: 0
   PromptPrefix: 
