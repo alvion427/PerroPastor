@@ -153,7 +153,7 @@ Transform:
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children:
-  - {fileID: 516933678}
+  - {fileID: 581496848}
   m_Father: {fileID: 1748004754}
   m_RootOrder: 0
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
@@ -349,42 +349,42 @@ MonoBehaviour:
     He is very proud of his Italian heritage, and loves everything about Italy and
     Pizza.
 
+    
 
+    A customer has just walked in the door, and begins speaking
+    with Luigi.  Each time the customer says something to luigi, his reply follows
+    just after.
 
-    A customer has just walked in the door, and begins speaking with
-    Luigi.  Each time the customer says something to luigi, his reply follows just
-    after.
-
-
+    
 
     Here is an example:
 
+    
 
+    <customer>: Do you
+    have any pepperoni pizza?
 
-    <customer>: Do you have any pepperoni
-    pizza?
+    <luigi>: You bet I have pepperoni pizza!  I always
+    have pepperoni for you!
 
-    <luigi>: You bet I have pepperoni pizza!  I always have pepperoni
-    for you!
-
-    <customer>:<eos> Great, then I''ll take one slice of pepperoni
-    pizza to go please.
+    <customer>:<eos> Great, then I''ll take one slice
+    of pepperoni pizza to go please.
 
     <luigi>: Bellissimo!  Coming right up!
 
     <customer>:<eos>
 
-
+    
 
     Now,
     the conversation begins:
 
-
+    
 
     <customer>: Hi luigi! How are you?
 
     <luigi>:'
-  Temperature: 0.9
+  Temperature: 0.5
   RunOnStart: 512
   Repeat: 0
   PromptPrefix: 
@@ -628,6 +628,7 @@ Transform:
   m_ConstrainProportionsScale: 0
   m_Children:
   - {fileID: 157739465}
+  - {fileID: 1796013660}
   m_Father: {fileID: 1748004754}
   m_RootOrder: 1
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
@@ -699,95 +700,6 @@ Transform:
   m_Father: {fileID: 0}
   m_RootOrder: 3
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!1 &516933677
-GameObject:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  serializedVersion: 6
-  m_Component:
-  - component: {fileID: 516933678}
-  - component: {fileID: 516933680}
-  - component: {fileID: 516933679}
-  m_Layer: 0
-  m_Name: Conversation-LlamaChat7b
-  m_TagString: Untagged
-  m_Icon: {fileID: 0}
-  m_NavMeshLayer: 0
-  m_StaticEditorFlags: 0
-  m_IsActive: 1
---- !u!4 &516933678
-Transform:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 516933677}
-  m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
-  m_LocalPosition: {x: 0, y: 0, z: 0}
-  m_LocalScale: {x: 1, y: 1, z: 1}
-  m_ConstrainProportionsScale: 0
-  m_Children: []
-  m_Father: {fileID: 54362380}
-  m_RootOrder: 0
-  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!114 &516933679
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 516933677}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 67472cf6de68ba7408a1ff3f0648ff1a, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
-  Conversation: {fileID: 516933680}
-  TextOutput: {fileID: 1678145045}
-  TextInput: {fileID: 1627557850}
-  SubmitButton: {fileID: 1996914178}
---- !u!114 &516933680
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 516933677}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: f6a4210d14be1fa4db4ab00e64820fe7, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
-  Llama: {fileID: 54362381}
-  Prompt: '[INST] <<SYS>>
-
-    You are a fun loving pizza chef named Luigi.  Luigi
-    is the chef in his restaurant The Pie Palace in Brooklyn, NY.  He is very proud
-    of his Italian heritage, and loves everything about Italy and Pizza.  He speaks
-    with a cartoonish Italian accent, and loves everything about pizza!
-
-
-
-    Be
-    VERY brief when speaking to the customer.  Be friendly, but keep all replies
-    as short as possible.  Don''t yell, (ie use capital letters), and don''t perform
-    actions, such as "*winks*".
-
-    <</SYS>>
-
-
-
-    Hey Luigi, how are you doing?
-    [/INST]\n\n'
-  Temperature: 0.5
-  RunOnStart: 512
-  Repeat: 0
-  PromptPrefix: \n\n[INST]
-  PromptPostfix: ' [/INST]\n'
-  TerminationSequence: 
-  UsePromptCache: 1
 --- !u!1 &519420028
 GameObject:
   m_ObjectHideFlags: 0
@@ -872,6 +784,95 @@ Transform:
   m_Father: {fileID: 0}
   m_RootOrder: 0
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!1 &581496847
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 581496848}
+  - component: {fileID: 581496850}
+  - component: {fileID: 581496849}
+  m_Layer: 0
+  m_Name: Conversation-LlamaChat7b
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &581496848
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 581496847}
+  m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 54362380}
+  m_RootOrder: 0
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &581496849
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 581496847}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 67472cf6de68ba7408a1ff3f0648ff1a, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  Conversation: {fileID: 581496850}
+  TextOutput: {fileID: 1678145045}
+  TextInput: {fileID: 1627557850}
+  SubmitButton: {fileID: 1996914178}
+--- !u!114 &581496850
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 581496847}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: f6a4210d14be1fa4db4ab00e64820fe7, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  Llama: {fileID: 54362381}
+  Prompt: '[INST] <<SYS>>
+
+    You are a fun loving pizza chef named Luigi.  Luigi
+    is the chef in his restaurant The Pie Palace in Brooklyn, NY.  He is very proud
+    of his Italian heritage, and loves everything about Italy and Pizza.  He speaks
+    with a cartoonish Italian accent, and loves everything about pizza!
+
+
+
+    Be
+    VERY brief when speaking to the customer.  Be friendly, but keep all replies
+    as short as possible.  Don''t yell, (ie use capital letters), and don''t perform
+    actions, such as "*winks*".
+
+    <</SYS>>
+
+
+
+    Hey Luigi, how are you doing?
+    [/INST]\n\n'
+  Temperature: 0.5
+  RunOnStart: 512
+  Repeat: 0
+  PromptPrefix: \n\n[INST]
+  PromptPostfix: ' [/INST]\n'
+  TerminationSequence: 
+  UsePromptCache: 1
 --- !u!1 &606020841
 GameObject:
   m_ObjectHideFlags: 0
@@ -903,11 +904,11 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   RandomSeed: -1
-  RuntimeQuantizationMode: 1
+  RuntimeQuantizationMode: 0
   ModelLoader: {fileID: 0}
   MaxTokensPerFrame: 1
   SaveTrace: 
-  CheckTrace: 
+  CheckTrace: regress10
   _Debug: 0
 --- !u!4 &606020843
 Transform:
@@ -948,7 +949,7 @@ MonoBehaviour:
     n_kv_heads: 0
     vocab_size: 0
     seq_len: 0
-  QuantMode: 3
+  QuantMode: 1
 --- !u!1 &726328889
 GameObject:
   m_ObjectHideFlags: 0
@@ -1954,6 +1955,76 @@ CanvasRenderer:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1779662804}
   m_CullTransparentMesh: 1
+--- !u!1 &1796013659
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1796013660}
+  - component: {fileID: 1796013662}
+  - component: {fileID: 1796013661}
+  m_Layer: 0
+  m_Name: Conversation-OpenLlama3b Mountains
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 0
+--- !u!4 &1796013660
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1796013659}
+  m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 468314126}
+  m_RootOrder: 1
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &1796013661
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1796013659}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 67472cf6de68ba7408a1ff3f0648ff1a, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  Conversation: {fileID: 1796013662}
+  TextOutput: {fileID: 1678145045}
+  TextInput: {fileID: 1627557850}
+  SubmitButton: {fileID: 1996914178}
+--- !u!114 &1796013662
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1796013659}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: f6a4210d14be1fa4db4ab00e64820fe7, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  Llama: {fileID: 468314125}
+  Prompt: 'Here is a list of the tallest mountains in the world: '
+  Temperature: 0
+  RunOnStart: 255
+  Repeat: 0
+  PromptPrefix: 
+  PromptPostfix: 
+  TerminationSequence: '<customer>:'
+  UsePromptCache: 0
 --- !u!1 &1996914176
 GameObject:
   m_ObjectHideFlags: 0
@@ -2151,8 +2222,8 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   Llama: {fileID: 606020842}
   Prompt: 
-  Temperature: 0.9
-  RunOnStart: 255
+  Temperature: 0
+  RunOnStart: 1
   Repeat: 0
   PromptPrefix: 
   PromptPostfix: \n

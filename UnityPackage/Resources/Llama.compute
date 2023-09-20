@@ -240,43 +240,57 @@ StructuredBuffer<float4> rmsnorm_In; // Input values
 StructuredBuffer<WEIGHT_BLOCK_TYPE> rmsnorm_Weight; // Weights
 RWStructuredBuffer<float4> rmsnorm_Out; // Output values
 uint rmsnorm_vecLen;
-uint rmsnorm_blockCount;
 float rmsnorm_length;
 
-[numthreads(1, 1, 1)]
+groupshared uint rmsnorm_ss_integer;
+groupshared uint rmsnorm_ss_fraction;
+
+[numthreads(1024, 1, 1)]
 void RMSNorm(uint3 id : SV_DispatchThreadID) {
-    const float kEpsilon = 1e-5f;
 
-    uint j;
-    
-    // Calculate sum of squares
-    float ss = 0.0f;
-    for (j = 0; j < rmsnorm_vecLen; j++) {
-        ss += dot(rmsnorm_In[j], rmsnorm_In[j]);
-    }
-    ss /= rmsnorm_length;
-    ss += kEpsilon;
-    ss = 1.0f / sqrt(ss);
-
-    // Normalize and scale
-#if !WEIGHT_IS_QUANTIZED
-    for (j = 0; j < rmsnorm_vecLen; ++j)
+    if (id.x == 0)
     {
+        rmsnorm_ss_integer = 0;
+        rmsnorm_ss_fraction = 0;
+    }
+
+    GroupMemoryBarrierWithGroupSync();
+
+    uint j = id.x;
+
+    if (j < rmsnorm_vecLen)
+    {
+        // RMSNorm denominator can grow very large (in the hundreds of thousands) or be very small in which case
+        // it needs to be precise, so we can't use our normal 16/16 fixed point.  Instead we use two floats for 32/32.
+        const float val = dot(rmsnorm_In[j], rmsnorm_In[j]);
+        const uint valInt = (uint)val;
+        const float fraction = val - (float)valInt;
+        InterlockedAdd(rmsnorm_ss_integer, valInt);
+        InterlockedAdd(rmsnorm_ss_fraction, (uint)round(fraction * kFixedPointScale));
+    }
+        
+    GroupMemoryBarrierWithGroupSync();
+
+    if (j < rmsnorm_vecLen)
+    {
+        const float kEpsilon = 1e-5f;
+        float ss = (float)rmsnorm_ss_integer + (float)rmsnorm_ss_fraction / kFixedPointScale;
+        ss /= rmsnorm_length;
+        ss += kEpsilon;
+        ss = 1.0f / sqrt(ss);
+
+        // Normalize and scale
+#if !WEIGHT_IS_QUANTIZED
         float4 weights = LOAD_WEIGHT(rmsnorm_Weight[j]);
         rmsnorm_Out[j] = weights * (ss * rmsnorm_In[j]);
-    }
 #else
-    for (uint b = 0; b < rmsnorm_blockCount; ++b)
-    {
+        uint b = j / WEIGHT_BLOCK_VEC;
         const WEIGHT_BLOCK_TYPE block = rmsnorm_Weight[b];
-        for (uint valueIndex = 0; valueIndex < WEIGHT_BLOCK_VEC; ++valueIndex)
-        {
-            float4 weights = DECODE_WEIGHT(block, valueIndex);
-            j = b * WEIGHT_BLOCK_VEC + valueIndex;
-            rmsnorm_Out[j] = weights * (ss * rmsnorm_In[j]);
-        }
-    }
+        const uint valueIndex = j % WEIGHT_BLOCK_VEC;
+        float4 weights = DECODE_WEIGHT(block, valueIndex);
+        rmsnorm_Out[j] = weights * (ss * rmsnorm_In[j]);
 #endif
+    }
 }
 
 /// Rope

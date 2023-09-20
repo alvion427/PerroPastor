@@ -505,17 +505,15 @@ public class Llama : MonoBehaviour {
     Profiler.BeginSample("RmsNorm");
 
     int vecLen = ComputeUtils.GetVectorizedLength(length);
-    int blockCount = _config.dim / _weightsGpu.token_embedding_table.BlockSize;
+    Debug.Assert(vecLen <= 1024, "RMSNorm must fit within a single thread group");
 
     _llamaShader.SetBuffer(_kernels.rmsNorm, "rmsnorm_In", bufferIn);
     _llamaShader.SetBuffer(_kernels.rmsNorm, "rmsnorm_Weight", rmsWeights);
     _llamaShader.SetBuffer(_kernels.rmsNorm, "rmsnorm_Out", resultBuffer);
     _llamaShader.SetInt("rmsnorm_vecLen", vecLen);
-    _llamaShader.SetInt("rmsnorm_blockCount", blockCount);
     _llamaShader.SetFloat("rmsnorm_length", length);
-
+    
     _llamaShader.Dispatch(_kernels.rmsNorm, 1, 1, 1);
-
     Profiler.EndSample();
 
     if (_Debug) {
