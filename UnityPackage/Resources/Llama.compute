@@ -430,6 +430,211 @@ void ComputeAttention(uint3 id : SV_DispatchThreadID, uint3 gid : SV_GroupThread
     compute_attention_att[att_offset + t] = score;
 }
 
+#pragma kernel FusedAttention
+#pragma kernel FusedAttentionScale
+
+#define kAttentionMaxHeads 32
+#define kAttentionMaxHeadSizeVec 32
+#define kAttentionRowsPerGroup 32
+#define kAttentionMaxRows 1024
+#define kAttentionMaxGroupRows (kAttentionMaxRows / kAttentionRowsPerGroup) 
+
+StructuredBuffer<float> fusedatt_query;             // (dim,)
+StructuredBuffer<RUNTIME_TYPE_VEC> fusedatt_keys;   // (seqLen, dim)
+StructuredBuffer<RUNTIME_TYPE_VEC> fusedatt_vals;   // (seqLen, dim)
+RWStructuredBuffer<uint> fusedatt_globalMax;         // fixed32 : (1)
+RWStructuredBuffer<float> fusedatt_groupMax;        // (groupRows,numHeads)
+RWStructuredBuffer<float> fusedatt_groupSum;        // (groupRows,numHeads)
+RWStructuredBuffer<float> fusedatt_groupOutput;     // (groupRows,dim)
+RWStructuredBuffer<float> fusedatt_output;          // (dim,)
+
+uint fusedatt_pos;
+uint fusedatt_seqLen;
+uint fusedatt_numHeads;
+uint fusedatt_headSizeVec;
+uint fusedatt_dimVec;
+float fusedatt_headSizeInvSqrt;
+
+groupshared uint fusedatt_group_max;
+groupshared int2 fusedatt_group_sum;
+
+// Cached query
+//groupshared float4 fusedatt_group_queryCache[kAttentionMaxHeadSizeVec];
+
+// Fixed point attention scores
+groupshared int2 fusedatt_group_scoresFixed[kAttentionRowsPerGroup];
+
+// Attention scores converted to float
+groupshared float fusedatt_group_scores[kAttentionRowsPerGroup];
+
+// Attention scores exponentiated
+groupshared float fusedatt_group_scoresExp[kAttentionRowsPerGroup];
+
+// Attention scores multiplied by values
+groupshared int4 fusedatt_group_valuesFixed[kAttentionMaxHeadSizeVec];
+
+[numthreads(1, kAttentionRowsPerGroup, kAttentionMaxHeadSizeVec)]
+void FusedAttention(uint3 id : SV_DispatchThreadID, uint3 gid : SV_GroupThreadID, uint3 groupId : SV_GroupID)
+{
+    // First init groupMax and groupSum to 0
+    if (all(gid == 0))
+    {
+        fusedatt_group_max = 0;
+        fusedatt_group_sum = int2(0, 0);
+    }
+
+    // Init fixed value attention scores so they can be accumulated
+    if (gid.z == 0)
+    {
+        fusedatt_group_scoresFixed[gid.y] = 0;
+    }
+    
+    // Init values to 0 since they are accumulated too
+    if (gid.y == 0)
+    {
+        fusedatt_group_valuesFixed[gid.z] = 0;
+    }
+
+    GroupMemoryBarrierWithGroupSync();
+
+    const uint headIndex = groupId.x;
+    const uint i = gid.z;
+    const uint t = id.y;
+
+    const uint headOffset = headIndex * fusedatt_headSizeVec;
+    // Our kv cache is size (seqLen, dim).  T is the row, so our offset is t * dim + headIndex * headSize
+    const uint kv_offset = t * fusedatt_dimVec + headOffset;
+    
+    // Compute attention as query dot keys[t] and accumulate in group_scoresFixed
+    if (i < fusedatt_headSizeVec && t <= fusedatt_pos)
+    {
+        // Compute attention score as dot product of q and k
+        // TODO: Store q in groupshared memory
+        const float4 q = fusedatt_query[headOffset + i];
+        const float4 k = LoadRuntime(fusedatt_keys[kv_offset + i]);
+        const float score = dot(q, k);
+
+        InterlockedAddFixedInt64(fusedatt_group_scoresFixed[gid.y], FloatToFixedInt64(score));
+        //const int2 scoreFixed = FloatToFixedInt64(score);
+        //InterlockedAdd(fusedatt_group_scoresFixed[gid.y].x, scoreFixed.x);
+        //InterlockedAdd(fusedatt_group_scoresFixed[gid.y].y, scoreFixed.y);
+
+    }
+
+    GroupMemoryBarrierWithGroupSync();
+
+    // First thread in each row updates max
+    if (i == 0 && t <= fusedatt_pos)
+    {
+        float totalScore = FixedInt64ToFloat(fusedatt_group_scoresFixed[gid.y]);
+        totalScore *= fusedatt_headSizeInvSqrt;
+        fusedatt_group_scores[gid.y] = totalScore;
+
+        const uint totalScoreFixed = FloatToFixedUint(totalScore);
+        InterlockedMax(fusedatt_group_max, totalScoreFixed);
+    }
+
+    GroupMemoryBarrierWithGroupSync();
+
+    // Compute exp(att - max) and accumulate in sum
+    if (i == 0 && t <= fusedatt_pos)
+    {
+        const float groupMax = FixedUintToFloat(fusedatt_group_max);
+        const float score = fusedatt_group_scores[gid.y];
+        const float scoreExp = exp(score - groupMax);
+        fusedatt_group_scoresExp[gid.y] = scoreExp;
+
+        // Accumulate exponentiated scores in group_sum
+        const int2 scoreExpFixed64 = FloatToFixedInt64(scoreExp);
+        InterlockedAddFixedInt64(fusedatt_group_sum, scoreExpFixed64);
+    }
+
+    GroupMemoryBarrierWithGroupSync();
+
+    // Multiply scores by values and accumulate weighted values
+    if (i < fusedatt_headSizeVec && t <= fusedatt_pos)
+    {
+        const float4 v = LoadRuntime(fusedatt_vals[kv_offset + i]);
+        const float scoreExp = fusedatt_group_scoresExp[gid.y];
+        const float4 scaledValue = v * scoreExp;
+        const int4 scaledValueFixed = int4(scaledValue * kFixedPointScale);
+        InterlockedAdd(fusedatt_group_valuesFixed[gid.z].x, scaledValueFixed.x);
+        InterlockedAdd(fusedatt_group_valuesFixed[gid.z].y, scaledValueFixed.y);
+        InterlockedAdd(fusedatt_group_valuesFixed[gid.z].z, scaledValueFixed.z);
+        InterlockedAdd(fusedatt_group_valuesFixed[gid.z].w, scaledValueFixed.w);
+    }
+
+    GroupMemoryBarrierWithGroupSync();
+
+    // Threads in first row write out weighted values to main memory.
+    if (gid.y == 0)
+    {
+        const uint outputIdx = groupId.y * fusedatt_dimVec + gid.z;
+        SetVector(fusedatt_groupOutput, outputIdx, fusedatt_group_valuesFixed[gid.z]);
+
+        if (gid.z == 0)
+        {
+            // Thread 0 in each group writes out groupSum and groupMax
+            const uint groupIdx = groupId.y * fusedatt_numHeads + groupId.x;
+            fusedatt_groupMax[groupIdx] = FixedUintToFloat(fusedatt_group_max);
+            fusedatt_groupSum[groupIdx] = FixedInt64ToFloat(fusedatt_group_sum);
+
+            // Compute the global max
+            InterlockedMax(fusedatt_globalMax[0], fusedatt_group_max);
+        }
+    }
+}
+
+groupshared int2 fusedatt_group_globalSum;
+groupshared int2 fusedatt_group_finalResult[kAttentionMaxHeadSizeVec * 4];
+
+// x is groupRow
+// y is head
+[numthreads(kAttentionMaxGroupRows, kAttentionMaxHeadSizeVec, 1)]
+void FusedAttentionScale(uint3 id : SV_DispatchThreadID, uint3 gid : SV_GroupThreadID, uint3 groupId : SV_GroupID) {
+    // We computed attention without the divide by sum, and with different values for max in the exp(att - max).  We now
+    // need to:
+    // - compute a scalar for each group's output 
+    // - combine all the group outputs into the final output
+
+    const uint groupRow = id.x;
+    const uint headIndex = groupId.y;
+    const uint i = gid.y;
+
+    if (groupRow == 0)
+    {
+        fusedatt_group_globalSum = int2(0, 0);
+    }
+
+    GroupMemoryBarrierWithGroupSync();
+
+    float maxScale = 0;
+    
+    if (groupRow * kAttentionRowsPerGroup <= fusedatt_pos + 1)
+    {
+        // adjust max for this group to comply with the global max
+        const uint groupIdx = groupRow * fusedatt_numHeads + headIndex;
+        const float groupMax = fusedatt_groupMax[groupIdx];
+        const float globalMax = FixedUintToFloat(fusedatt_globalMax[0]);
+        maxScale = exp(groupMax - globalMax);
+
+        // Adjust our sum to the global max, and accumulate the corrected global sum
+        const float groupSum = fusedatt_groupSum[groupIdx] * maxScale;
+        const int2 groupSumFixed = FloatToFixedInt64(groupSum);
+        InterlockedAddFixedInt64(fusedatt_group_globalSum, groupSumFixed)
+    }
+
+    GroupMemoryBarrierWithGroupSync();
+
+    if (groupRow * kAttentionRowsPerGroup <= fusedatt_pos + 1)
+    {
+        const float globalSum = FixedInt64ToFloat(fusedatt_group_globalSum);
+        const float scale = maxScale / globalSum;
+        const uint inputIdx = headIndex * fusedatt_dimVec + gid.z;
+        float4 sourceVal = GetVector(fusedatt_groupOutput, 
+    }
+}
+
 /// Silu
 #pragma kernel Silu
 

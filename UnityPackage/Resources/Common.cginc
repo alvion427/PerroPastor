@@ -1,12 +1,48 @@
 #define kThreadsPerGroup 256
 
+// Our standard fixed point format uses 16 bits for whole numbers and 16 bits for fraction
 #define kFixedPointScale (256.0f * 256.0f)
+
+// When we are accumulating fractions, we can use a little more precision for the decimal, although we may be
+// accumulating a LOT of them, so we still need a decent amount of room for whole numbers
+#define kFixedPointFractionScale (128.0f * 256.0f * 256.0f)
+
+uint FloatToFixedUint(float val) {
+    int fixedInt = (int)(val * kFixedPointScale);
+    return (uint)(fixedInt) + 0x80000000;
+}
+
+float FixedUintToFloat(uint fixedUint) {
+    return ((int)(fixedUint - 0x80000000)) / (float)kFixedPointScale;
+}
+
+int2 FloatToFixedInt64(float f)
+{
+    int whole = (int)f;
+    int fraction = (int)((f - (float)whole) * kFixedPointFractionScale);
+    return int2(whole, fraction);
+}
+
+float FixedInt64ToFloat(int2 i)
+{
+    return (float)i.x + (float)i.y / kFixedPointFractionScale;
+}
+
+#define InterlockedAddFixedInt64(loc, val) \
+    InterlockedAdd(loc.x, val.x); \
+    InterlockedAdd(loc.y, val.y);
 
 #define GetVector(b, idx) float4( \
     b[idx * 4 + 0], \
     b[idx * 4 + 1], \
     b[idx * 4 + 2], \
     b[idx * 4 + 3]);
+
+#define SetVector(b, idx, v) \
+    b[idx * 4 + 0] = v.x; \
+    b[idx * 4 + 1] = v.y; \
+    b[idx * 4 + 2] = v.z; \
+    b[idx * 4 + 3] = v.w;
 
 
 struct Q8_0_Block
