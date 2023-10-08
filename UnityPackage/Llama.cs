@@ -2,7 +2,9 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text;
 using TMPro;
+using Unity.Mathematics;
 using UnityEngine;
 using UnityEngine.Profiling;
 using UnityEngine.Rendering;
@@ -87,7 +89,9 @@ public class Llama : MonoBehaviour {
         ++tokensProcessedThisFrame;
 
         RunTransformer(c);
-      
+        
+        //PrintLogitsDebug(c);
+
         bool isFinalToken = c._tokensToRun == 1;
 
         if (c._pos < c._resultTokens.Count) {
@@ -157,6 +161,7 @@ public class Llama : MonoBehaviour {
     int pos = conversation._pos;
     int dim = _config.dim;
     int hidden_dim = _config.hidden_dim;
+    int headSize = _config.dim / _config.n_heads;
     
     // The first step is to load the embedding for the current token.  This is just a simple lookup into the
     // embedding table of the last generated token (or the start of sequence token when we begin).
@@ -587,8 +592,8 @@ public class Llama : MonoBehaviour {
 
       float[] resultData = new float[att.ElementCount<float>()];
       att.GetData(resultData);
-      string debugString = string.Join(", ", new ArraySegment<float>(resultData, head * _config.seq_len, 8));
-      Debug.Log(debugString);
+      string debugString = string.Join(", ", new ArraySegment<float>(resultData, head * _config.seq_len, Mathf.Min(pos + 1, 8)));
+      Debug.Log($"Attn_{head}:{debugString}");
     }
   }
   
@@ -647,8 +652,8 @@ public class Llama : MonoBehaviour {
 
       float[] resultData = new float[bufferInOut.ElementCount<float>()];
       bufferInOut.GetData(resultData);
-      string debugString = string.Join(", ", new ArraySegment<float>(resultData, offset, 8));
-      Debug.Log(debugString);
+      string debugString = string.Join(", ", new ArraySegment<float>(resultData, offset, Mathf.Min(length, 8)));
+      Debug.Log($"Softmax: {debugString}");
     }
   }
 
@@ -713,7 +718,16 @@ public class Llama : MonoBehaviour {
 
     Profiler.EndSample();
 
-    if (_Debug) {
+    if (_Debug) 
+    {
+      float[] weightsData = new float[valuesBuffer.ElementCount<float>()];
+      valuesBuffer.GetData(weightsData);
+      float[] fullValues = new ArraySegment<float>(weightsData, 0, dimVec * 4).ToArray();
+      float[] headValues = new ArraySegment<float>(weightsData, offsetVec * 4, headSizeVec * 4).ToArray();
+      
+      float[] attentionData = new float[attentionBuffer.ElementCount<float>()];
+      attentionBuffer.GetData(attentionData);
+
       int[] resultData = new int[resultBuffer.ElementCount<float>()];
       resultBuffer.GetData(resultData);
       float[] floatData = new float[resultBuffer.ElementCount<float>()];
@@ -784,17 +798,18 @@ public class Llama : MonoBehaviour {
 
     sortedLogits.Sort((a, b) => b.Item2.CompareTo(a.Item2));
 
+    StringBuilder topLogitString = new StringBuilder();
     for (int i = 0; i < 10; i++) {
       Tuple<int, float> token = sortedLogits[i];
       string tokenString = _tokenizer.Detokenize(token.Item1);
-      Debug.Log($"Top {i}: {tokenString} {token.Item2}");
+      topLogitString.Append($"Top {i}: {tokenString} {token.Item2}\n"); 
     }
 
     int[] outputToken = new int[1];
     conversation._outputToken.GetData(outputToken);
     string outputTokenString = _tokenizer.Detokenize(outputToken[0]);
 
-    string debugString = string.Join(", ", new ArraySegment<float>(logits, 0, 256));
-    Debug.Log($"Got output token {outputTokenString} with logits {debugString}");
+    string codeString = string.Join(", ", outputTokenString.Select(c => (int)c).ToArray()); 
+    Debug.Log($"Got output token '{outputTokenString}' ({codeString})\n\n{topLogitString}");
   }
 }

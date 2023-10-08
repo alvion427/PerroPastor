@@ -9,8 +9,8 @@ public class GGMLMetaData {
   public GGMLFileVersion FileVersion;
   public Hparams Hparams;
   public Vocab Vocab;
-  public List<TensorMeta> Tensors;
-  public Dictionary<string, TensorMeta> NamedTensors;
+  public List<GGMLTensorMeta> Tensors;
+  public Dictionary<string, GGMLTensorMeta> NamedTensors;
 }
 
 public struct Hparams
@@ -37,7 +37,7 @@ public class Vocab {
   public float[] IdToScore;
 }
 
-public struct TensorMeta 
+public struct GGMLTensorMeta 
 {
   public string Name {get; set;}
   public int[] Dimensions {get; set;}
@@ -108,20 +108,6 @@ public enum GGMLFileType
   MostlyQ5_K_Medium, // except 1d tensors
   MostlyQ6_K // except 1d tensors
 }
-
-public unsafe struct Q8_0Block {
-  public float scale;
-  public fixed sbyte values[32];
-}
-
-public unsafe struct Q5_1Block
-{
-  public half scale;
-  public half min;
-  public uint highBits;
-  public fixed uint values[4];
-};
-
 
 public class GGMLTraitType 
 {

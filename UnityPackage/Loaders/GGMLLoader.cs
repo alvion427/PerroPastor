@@ -182,9 +182,9 @@ public class GGMLLoader : ModelLoaderBase {
     throw new Exception("Unknown magic number");
   }
 
-  private unsafe GpuTensor CreateAndLoadTensor(TensorMeta tensorMeta, byte* fileStart) {
+  private unsafe GpuTensor CreateAndLoadTensor(GGMLTensorMeta gGMLTensorMeta, byte* fileStart) {
     QuantizationModes quantMode;
-    switch (tensorMeta.Type) {
+    switch (gGMLTensorMeta.Type) {
       case GGMLType.F32:
         quantMode = QuantizationModes.Float32;
         break;
@@ -198,19 +198,19 @@ public class GGMLLoader : ModelLoaderBase {
         quantMode = QuantizationModes.Q8_0;
         break;
       default:
-        throw new ArgumentException("Unsupported tensorMeta type: " + tensorMeta.Type);
+        throw new ArgumentException("Unsupported gGMLTensorMeta type: " + gGMLTensorMeta.Type);
     }
 
     /*
      TODO: Verify this
-    if (tensorMeta.Dimensions.Length == 1) {
-      if (rows != tensorMeta.Dimensions[0] || cols > 1) {
-        throw new ArgumentException($"tensorMeta size doesn't match: {rows}, {cols} != {tensorMeta.Dimensions}");
+    if (gGMLTensorMeta.Dimensions.Length == 1) {
+      if (rows != gGMLTensorMeta.Dimensions[0] || cols > 1) {
+        throw new ArgumentException($"gGMLTensorMeta size doesn't match: {rows}, {cols} != {gGMLTensorMeta.Dimensions}");
       }
     }
-    if (tensorMeta.Dimensions.Length == 2) {
-      if (rows != tensorMeta.Dimensions[0] || cols != tensorMeta.Dimensions[1]) {
-        throw new ArgumentException($"tensorMeta size doesn't match: {rows}, {cols} != {tensorMeta.Dimensions}");
+    if (gGMLTensorMeta.Dimensions.Length == 2) {
+      if (rows != gGMLTensorMeta.Dimensions[0] || cols != gGMLTensorMeta.Dimensions[1]) {
+        throw new ArgumentException($"gGMLTensorMeta size doesn't match: {rows}, {cols} != {gGMLTensorMeta.Dimensions}");
       }
     }
     else  {
@@ -218,11 +218,11 @@ public class GGMLLoader : ModelLoaderBase {
     }
     */
     
-    int rows = tensorMeta.Dimensions[0];
-    int cols = tensorMeta.Dimensions.Length >= 2 ? tensorMeta.Dimensions[1] : 1; 
+    int rows = gGMLTensorMeta.Dimensions[0];
+    int cols = gGMLTensorMeta.Dimensions.Length >= 2 ? gGMLTensorMeta.Dimensions[1] : 1; 
     GpuTensor tensor = new GpuTensor(rows, cols, quantMode);
 
-    byte* tensorPtr = fileStart + tensorMeta.FileOffset;
+    byte* tensorPtr = fileStart + gGMLTensorMeta.FileOffset;
 
     if (tensor.Mode == QuantizationModes.Q8_0) {
       // *sigh*, Q8_0 buffers have a stride of size 34 from the fact that they use a 'half' for scale.  ComputeBuffers
@@ -233,8 +233,8 @@ public class GGMLLoader : ModelLoaderBase {
       tensor.Buffer.SetData(blockArray);
     }
     else {
-      if (tensor.SizeBytes != tensorMeta.Size) { 
-        throw new ArgumentException($"Mismatched tensor size for {tensorMeta.Name} expected {tensorMeta.Size} but got {tensor.SizeBytes}");
+      if (tensor.SizeBytes != gGMLTensorMeta.Size) { 
+        throw new ArgumentException($"Mismatched tensor size for {gGMLTensorMeta.Name} expected {gGMLTensorMeta.Size} but got {tensor.SizeBytes}");
       }
     
       var sourceArray =
@@ -305,11 +305,11 @@ public class GGMLLoader : ModelLoaderBase {
     return System.Text.Encoding.UTF8.GetString(byteBuffer);
   }
 
-  private static List<TensorMeta> ReadTensorMetadata(BinaryReader reader, GGMLFileVersion fileVersion) {
-    List<TensorMeta> tensors = new List<TensorMeta>();
+  private static List<GGMLTensorMeta> ReadTensorMetadata(BinaryReader reader, GGMLFileVersion fileVersion) {
+    List<GGMLTensorMeta> tensors = new List<GGMLTensorMeta>();
 
     while (reader.BaseStream.Position < reader.BaseStream.Length) {
-      TensorMeta tensor = new TensorMeta();
+      GGMLTensorMeta tensor = new GGMLTensorMeta();
 
       uint numDims = reader.ReadUInt32();
       uint nameLen = reader.ReadUInt32();
@@ -337,7 +337,7 @@ public class GGMLLoader : ModelLoaderBase {
     return tensors;
   }
 
-  private static long CalculateTensorSize(TensorMeta tensor) {
+  private static long CalculateTensorSize(GGMLTensorMeta tensor) {
     var traits = tensor.Type.GetTraits();
     long size = traits.TypeSize;
     foreach (int dim in tensor.Dimensions) {

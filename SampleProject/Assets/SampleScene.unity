@@ -140,7 +140,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 1
+  m_IsActive: 0
 --- !u!4 &54362380
 Transform:
   m_ObjectHideFlags: 0
@@ -191,6 +191,115 @@ MonoBehaviour:
   ModelPath: llama-2-7b-chat.ggmlv3.q5_1.bin
   ModelsDir: 
   CacheWeights: 1
+--- !u!1 &88807965
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 88807966}
+  - component: {fileID: 88807968}
+  - component: {fileID: 88807967}
+  m_Layer: 0
+  m_Name: Conversation-OpenLlama3b
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &88807966
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 88807965}
+  m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 1324854357}
+  m_RootOrder: 0
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &88807967
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 88807965}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 67472cf6de68ba7408a1ff3f0648ff1a, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  Conversation: {fileID: 88807968}
+  TextOutput: {fileID: 1678145045}
+  TextInput: {fileID: 1627557850}
+  SubmitButton: {fileID: 1996914178}
+--- !u!114 &88807968
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 88807965}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: f6a4210d14be1fa4db4ab00e64820fe7, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  Llama: {fileID: 1324854358}
+  Prompt: 'This is a conversation between a customer and a fun loving chef named
+    Luigi.  Luigi is a pizza chef in his restaurant The Pie Palace in Brooklyn, NY. 
+    He is very proud of his Italian heritage, and loves everything about Italy and
+    Pizza.
+
+
+
+    A customer has just walked in the door, and begins speaking with
+    Luigi.  Each time the customer says something to luigi, his reply follows just
+    after.
+
+
+
+    Here is an example:
+
+
+
+    <customer>: Do you have any pepperoni
+    pizza?
+
+    <luigi>: You bet I have pepperoni pizza!  I always have pepperoni
+    for you!
+
+    <customer>:<eos> Great, then I''ll take one slice of pepperoni
+    pizza to go please.
+
+    <luigi>: Bellissimo!  Coming right up!
+
+    <customer>:<eos>
+
+
+
+    Now,
+    the conversation begins:
+
+
+
+    <customer>: Hi luigi! How are you?
+
+    <luigi>:'
+  Temperature: 0.5
+  RunOnStart: 512
+  Repeat: 0
+  PromptPrefix: '\n<customer>: '
+  PromptPostfix: '\n<luigi>: '
+  TerminationSequence: '<customer>:'
+  UsePromptCache: 1
 --- !u!1 &121381030
 GameObject:
   m_ObjectHideFlags: 0
@@ -282,115 +391,6 @@ CanvasRenderer:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 121381030}
   m_CullTransparentMesh: 1
---- !u!1 &157739464
-GameObject:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  serializedVersion: 6
-  m_Component:
-  - component: {fileID: 157739465}
-  - component: {fileID: 157739467}
-  - component: {fileID: 157739466}
-  m_Layer: 0
-  m_Name: Conversation-OpenLlama3b
-  m_TagString: Untagged
-  m_Icon: {fileID: 0}
-  m_NavMeshLayer: 0
-  m_StaticEditorFlags: 0
-  m_IsActive: 1
---- !u!4 &157739465
-Transform:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 157739464}
-  m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
-  m_LocalPosition: {x: 0, y: 0, z: 0}
-  m_LocalScale: {x: 1, y: 1, z: 1}
-  m_ConstrainProportionsScale: 0
-  m_Children: []
-  m_Father: {fileID: 468314126}
-  m_RootOrder: 0
-  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!114 &157739466
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 157739464}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 67472cf6de68ba7408a1ff3f0648ff1a, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
-  Conversation: {fileID: 157739467}
-  TextOutput: {fileID: 1678145045}
-  TextInput: {fileID: 1627557850}
-  SubmitButton: {fileID: 1996914178}
---- !u!114 &157739467
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 157739464}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: f6a4210d14be1fa4db4ab00e64820fe7, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
-  Llama: {fileID: 468314125}
-  Prompt: 'This is a conversation between a customer and a fun loving chef named
-    Luigi.  Luigi is a pizza chef in his restaurant The Pie Palace in Brooklyn, NY. 
-    He is very proud of his Italian heritage, and loves everything about Italy and
-    Pizza.
-
-    
-
-    A customer has just walked in the door, and begins speaking
-    with Luigi.  Each time the customer says something to luigi, his reply follows
-    just after.
-
-    
-
-    Here is an example:
-
-    
-
-    <customer>: Do you
-    have any pepperoni pizza?
-
-    <luigi>: You bet I have pepperoni pizza!  I always
-    have pepperoni for you!
-
-    <customer>:<eos> Great, then I''ll take one slice
-    of pepperoni pizza to go please.
-
-    <luigi>: Bellissimo!  Coming right up!
-
-    <customer>:<eos>
-
-    
-
-    Now,
-    the conversation begins:
-
-    
-
-    <customer>: Hi luigi! How are you?
-
-    <luigi>:'
-  Temperature: 0.5
-  RunOnStart: 512
-  Repeat: 0
-  PromptPrefix: 
-  PromptPostfix: \n
-  TerminationSequence: '<customer>:'
-  UsePromptCache: 1
 --- !u!1 &202027537
 GameObject:
   m_ObjectHideFlags: 0
@@ -563,75 +563,6 @@ RectTransform:
   m_AnchoredPosition: {x: 0, y: 0}
   m_SizeDelta: {x: -20, y: -20}
   m_Pivot: {x: 0.5, y: 0.5}
---- !u!1 &468314123
-GameObject:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  serializedVersion: 6
-  m_Component:
-  - component: {fileID: 468314126}
-  - component: {fileID: 468314125}
-  - component: {fileID: 468314124}
-  m_Layer: 0
-  m_Name: Llama-OpenLlama3b
-  m_TagString: Untagged
-  m_Icon: {fileID: 0}
-  m_NavMeshLayer: 0
-  m_StaticEditorFlags: 0
-  m_IsActive: 1
---- !u!114 &468314124
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 468314123}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 3629b295345cda2458f9dc92eec361ca, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
-  ModelPath: openllama3b-ggml-q5_1.bin
-  ModelsDir: 
-  CacheWeights: 1
---- !u!114 &468314125
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 468314123}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: d38642c1006b2cd4694455490c97d744, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
-  RandomSeed: -1
-  RuntimeQuantizationMode: 1
-  ModelLoader: {fileID: 468314124}
-  MaxTokensPerFrame: 1
-  SaveTrace: 
-  CheckTrace: 
-  _Debug: 0
---- !u!4 &468314126
-Transform:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 468314123}
-  m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
-  m_LocalPosition: {x: 0, y: 0, z: 0}
-  m_LocalScale: {x: 1, y: 1, z: 1}
-  m_ConstrainProportionsScale: 0
-  m_Children:
-  - {fileID: 157739465}
-  - {fileID: 1796013660}
-  m_Father: {fileID: 1748004754}
-  m_RootOrder: 1
-  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &483279217
 GameObject:
   m_ObjectHideFlags: 0
@@ -908,7 +839,7 @@ MonoBehaviour:
   ModelLoader: {fileID: 0}
   MaxTokensPerFrame: 1
   SaveTrace: 
-  CheckTrace: regress10
+  CheckTrace: 
   _Debug: 0
 --- !u!4 &606020843
 Transform:
@@ -1447,6 +1378,74 @@ CanvasRenderer:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 981623921}
   m_CullTransparentMesh: 1
+--- !u!1 &1324854356
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1324854357}
+  - component: {fileID: 1324854358}
+  - component: {fileID: 1324854359}
+  m_Layer: 0
+  m_Name: Llama-OrcaMini
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &1324854357
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1324854356}
+  m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children:
+  - {fileID: 88807966}
+  m_Father: {fileID: 1748004754}
+  m_RootOrder: 1
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &1324854358
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1324854356}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: d38642c1006b2cd4694455490c97d744, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  RandomSeed: -1
+  RuntimeQuantizationMode: 1
+  ModelLoader: {fileID: 1324854359}
+  MaxTokensPerFrame: 1
+  SaveTrace: 
+  CheckTrace: 
+  _Debug: 0
+--- !u!114 &1324854359
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1324854356}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 3629b295345cda2458f9dc92eec361ca, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  ModelPath: orcamini-3b-q5_1.gguf
+  ModelsDir: C:\joev\models\PerroPastorModels
+  CacheWeights: 1
 --- !u!1 &1627557848
 GameObject:
   m_ObjectHideFlags: 0
@@ -1815,7 +1814,7 @@ Transform:
   m_ConstrainProportionsScale: 0
   m_Children:
   - {fileID: 54362380}
-  - {fileID: 468314126}
+  - {fileID: 1324854357}
   - {fileID: 606020843}
   m_Father: {fileID: 0}
   m_RootOrder: 1
@@ -1955,76 +1954,6 @@ CanvasRenderer:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1779662804}
   m_CullTransparentMesh: 1
---- !u!1 &1796013659
-GameObject:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  serializedVersion: 6
-  m_Component:
-  - component: {fileID: 1796013660}
-  - component: {fileID: 1796013662}
-  - component: {fileID: 1796013661}
-  m_Layer: 0
-  m_Name: Conversation-OpenLlama3b Mountains
-  m_TagString: Untagged
-  m_Icon: {fileID: 0}
-  m_NavMeshLayer: 0
-  m_StaticEditorFlags: 0
-  m_IsActive: 0
---- !u!4 &1796013660
-Transform:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1796013659}
-  m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
-  m_LocalPosition: {x: 0, y: 0, z: 0}
-  m_LocalScale: {x: 1, y: 1, z: 1}
-  m_ConstrainProportionsScale: 0
-  m_Children: []
-  m_Father: {fileID: 468314126}
-  m_RootOrder: 1
-  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!114 &1796013661
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1796013659}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 67472cf6de68ba7408a1ff3f0648ff1a, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
-  Conversation: {fileID: 1796013662}
-  TextOutput: {fileID: 1678145045}
-  TextInput: {fileID: 1627557850}
-  SubmitButton: {fileID: 1996914178}
---- !u!114 &1796013662
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1796013659}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: f6a4210d14be1fa4db4ab00e64820fe7, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
-  Llama: {fileID: 468314125}
-  Prompt: 'Here is a list of the tallest mountains in the world: '
-  Temperature: 0
-  RunOnStart: 255
-  Repeat: 0
-  PromptPrefix: 
-  PromptPostfix: 
-  TerminationSequence: '<customer>:'
-  UsePromptCache: 0
 --- !u!1 &1996914176
 GameObject:
   m_ObjectHideFlags: 0
@@ -2222,8 +2151,8 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   Llama: {fileID: 606020842}
   Prompt: 
-  Temperature: 0
-  RunOnStart: 1
+  Temperature: 0.9
+  RunOnStart: 255
   Repeat: 0
   PromptPrefix: 
   PromptPostfix: \n

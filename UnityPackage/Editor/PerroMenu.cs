@@ -15,7 +15,7 @@ public class PerroMenu {
     }
     if (!File.Exists(readmePath)) {
       string readme =
-        "Save ggml model files (from HuggingFace, etc) into this folder to use them in Perror Pastor." +
+        "Save gguf model files (from HuggingFace, etc) into this folder to use them in Perror Pastor." +
         "Once you save the file, you have to update the ModelPath in the GGMLLoader component on the Llama" +
         "object.  You can just include the file name as long as they are in this folder.";
       File.WriteAllText(readmePath, readme);
@@ -121,4 +121,8 @@ public class KarpathyLoaderEditor : ModelLoaderBaseEditor {
 
 [CustomEditor(typeof(GGMLLoader))]
 public class GGMLLoaderEditor : ModelLoaderBaseEditor {
+}
+
+[CustomEditor(typeof(GGUFLoader))]
+public class GGUFLoaderEditor : ModelLoaderBaseEditor {
 }

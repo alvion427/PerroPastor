@@ -364,7 +364,7 @@ void SoftmaxExp(uint3 id : SV_DispatchThreadID, uint3 gid : SV_GroupThreadID) {
         for (uint j = start; j < end; ++j)
         {
             float xExp = exp(softmax_input[softmax_offset + j] - softmax_maxValue);
-            softmax_output[softmax_offset + j] = xExp;
+            softmax_output[j] = xExp;
             totalExp += xExp;
         }
 
@@ -386,7 +386,7 @@ void SoftmaxDivide(uint3 id : SV_DispatchThreadID, uint3 gid : SV_GroupThreadID)
     if (i >= softmax_length) return;
 
     float sum = softmax_sum_fixed[0] / kFixedPointScale;
-    softmax_output[softmax_offset + i] = softmax_input[softmax_offset + i] / sum;
+    softmax_output[softmax_offset + i] = softmax_input[i] / sum;
 }
 
 
