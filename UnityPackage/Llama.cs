@@ -162,7 +162,8 @@ public class Llama : MonoBehaviour {
     int dim = _config.dim;
     int hidden_dim = _config.hidden_dim;
     int headSize = _config.dim / _config.n_heads;
-    
+    int kvDim = _config.n_kv_heads * headSize;
+
     // The first step is to load the embedding for the current token.  This is just a simple lookup into the
     // embedding table of the last generated token (or the start of sequence token when we begin).
     LoadEmbedding(_runState.x, conversation._outputToken, conversation._pos);
@@ -186,8 +187,8 @@ public class Llama : MonoBehaviour {
       // value vectors for the current token.
       MatMul(_weightsGpu.layerWeights[l].wq, _runState.xb, _runState.q, dim, dim);
 
-      MatMul(_weightsGpu.layerWeights[l].wk, _runState.xb, _runState.k, dim, dim);
-      MatMul(_weightsGpu.layerWeights[l].wv, _runState.xb, _runState.v, dim, dim);
+      MatMul(_weightsGpu.layerWeights[l].wk, _runState.xb, _runState.k, kvDim, dim);
+      MatMul(_weightsGpu.layerWeights[l].wv, _runState.xb, _runState.v, kvDim, dim);
 
       _gpuStateDebugger?.ProcessState($"token{pos}_layer{l}_q", _runState.q);
       _gpuStateDebugger?.ProcessState($"token{pos}_layer{l}_k", _runState.k);
@@ -209,8 +210,8 @@ public class Llama : MonoBehaviour {
       // As we process each token, we accumulate the key and value vectors into a key/value cache, which allows us
       // to reuse them for future tokens.
       // XXX: Copy only bytes using runtime size!
-      Memcpy(conversation._persistentState.layers[l].key_cache, _runState.k, 0, pos * dim, dim);
-      Memcpy(conversation._persistentState.layers[l].value_cache, _runState.v, 0, pos * dim, dim);
+      Memcpy(conversation._persistentState.layers[l].key_cache, _runState.k, 0, pos * kvDim, kvDim);
+      Memcpy(conversation._persistentState.layers[l].value_cache, _runState.v, 0, pos * kvDim, kvDim);
 
       // The results of attention are an accumulation in this buffer, so we zero it out for all heads before
       // computing attention 
@@ -359,7 +360,7 @@ public class Llama : MonoBehaviour {
       float[] resultData = new float[copy_dest.ElementCount<float>()];
       copy_dest.GetData(resultData);
       string debugString = string.Join(", ", new ArraySegment<float>(resultData, destOffset, 8));
-      Debug.Log(debugString);
+      Debug.Log("Memcpy: " + debugString);
     }
   }
 
@@ -428,7 +429,7 @@ public class Llama : MonoBehaviour {
       float[] resultData = new float[embedding.ElementCount<float>()];
       embedding.GetData(resultData);
       string debugString = string.Join(", ", new ArraySegment<float>(resultData, 0, 8));
-      Debug.Log(debugString);
+      Debug.Log("LoadEmbedding: " + debugString);
     }
   }
 
@@ -438,6 +439,9 @@ public class Llama : MonoBehaviour {
     ComputeBuffer vectorOutFixed;
     if (vectorOut.ElementCount<float>() == _runState.xbFixed.ElementCount<int>()) {
       vectorOutFixed = _runState.xbFixed;
+    }
+    else if (vectorOut.ElementCount<float>() == _runState.xkvFixed.ElementCount<int>()) {
+      vectorOutFixed = _runState.xkvFixed;
     }
     else if (vectorOut.ElementCount<float>() == _runState.hbFixed.ElementCount<int>()) {
       vectorOutFixed = _runState.hbFixed;
@@ -479,7 +483,7 @@ public class Llama : MonoBehaviour {
       }
       
       string debugString = string.Join(", ", new ArraySegment<float>(floatData, 0, 8));
-      Debug.Log(debugString);
+      Debug.Log("MatMul: " + debugString);
     }
     
     FixedToFloat(vectorOutFixed, vectorOut, vectorOut.ElementCount<float>());
@@ -502,7 +506,7 @@ public class Llama : MonoBehaviour {
       float[] resultData = new float[bufferA.ElementCount<float>()];
       bufferA.GetData(resultData);
       string debugString = string.Join(", ", new ArraySegment<float>(resultData, 0, 8));
-      Debug.Log(debugString);
+      Debug.Log("Accumulate: " + debugString);
     }
   }
 
@@ -525,7 +529,7 @@ public class Llama : MonoBehaviour {
       float[] resultData = new float[resultBuffer.ElementCount<float>()];
       resultBuffer.GetData(resultData);
       string debugString = string.Join(", ", new ArraySegment<float>(resultData, 0, 8));
-      Debug.Log(debugString);
+      Debug.Log("RMSNorm: "+ debugString);
     }
   }
 
@@ -533,15 +537,17 @@ public class Llama : MonoBehaviour {
     Profiler.BeginSample("rope");
 
     int headSize = _config.dim / _config.n_heads;
-    int vecLen = _config.dim / 2;
+    int halfVecLen = _config.dim / 2;
+    int halfKvVecLen = _config.kv_dim / 2;
 
     _llamaShader.SetBuffer(_kernels.rope, "rope_q", q);
     _llamaShader.SetBuffer(_kernels.rope, "rope_k", k);
     _llamaShader.SetInt("rope_head_size", headSize);
     _llamaShader.SetInt("rope_pos", pos);
-    _llamaShader.SetInt("rope_length", vecLen);
+    _llamaShader.SetInt("rope_half_dim_vec", halfVecLen);
+    _llamaShader.SetInt("rope_kv_half_dim_vec", halfKvVecLen);
 
-    int threadGroupsX = Mathf.CeilToInt(vecLen / 256.0f);
+    int threadGroupsX = Mathf.CeilToInt(halfVecLen / 256.0f);
     _llamaShader.Dispatch(_kernels.rope, threadGroupsX, 1, 1);
 
     Profiler.EndSample();
@@ -567,13 +573,19 @@ public class Llama : MonoBehaviour {
     _llamaShader.SetBuffer(_kernels.computeAttention, "compute_attention_k", k);
     _llamaShader.SetBuffer(_kernels.computeAttention, "compute_attention_att", att);
 
-    int headSize = _config.dim / _config.n_heads;
+    int headSize = _config.head_size;
     int headSizeVec = ComputeUtils.GetVectorizedLength(headSize);
     int dimVec = ComputeUtils.GetVectorizedLength(_config.dim);
+
+    // For MQA, we share the key and value across multiple heads.  If there are
+    // 4x as many heads as kv_heads, then the first 4 heads will share the same
+    // key_value, etc.
+    int kvDiv = _config.n_heads / _config.n_kv_heads;
 
     // Set the variables
     _llamaShader.SetInt("compute_attention_head", head);
     _llamaShader.SetInt("compute_attention_head_size_vec", headSizeVec);
+    _llamaShader.SetInt("compute_attention_kv_div", kvDiv);
     _llamaShader.SetInt("compute_attention_pos", pos);
     _llamaShader.SetInt("compute_attention_dim_vec", dimVec);
     _llamaShader.SetInt("compute_attention_seq_len", _config.seq_len);
@@ -671,7 +683,7 @@ public class Llama : MonoBehaviour {
       float[] resultData = new float[bufferInOut.ElementCount<float>()];
       bufferInOut.GetData(resultData);
       string debugString = string.Join(", ", new ArraySegment<float>(resultData, 0, 8));
-      Debug.Log(debugString);
+      Debug.Log("Silu: " + debugString);
     }
   }
 
@@ -691,7 +703,7 @@ public class Llama : MonoBehaviour {
       float[] resultData = new float[resultBuffer.ElementCount<float>()];
       resultBuffer.GetData(resultData);
       string debugString = string.Join(", ", new ArraySegment<float>(resultData, 0, 8));
-      Debug.Log(debugString);
+      Debug.Log("Multiply: " + debugString);
     }
   }
 
@@ -736,7 +748,7 @@ public class Llama : MonoBehaviour {
       }
 
       string debugString = string.Join(", ", new ArraySegment<float>(floatData, offsetVec * 4, 8));
-      Debug.Log(debugString);
+      Debug.Log("Weighted Sum: " + debugString);
     }
   }
 

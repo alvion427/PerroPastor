@@ -7,11 +7,12 @@ public class LlamaConfig {
   public int hidden_dim; // For FFN layers
   public int n_layers; // Number of layers
   public int n_heads; // Number of query heads
-  public int n_kv_heads; // Unused
+  public int n_kv_heads; // Number of heads for keys/values
   public int vocab_size; // Vocabulary size, usually 256 (byte-level)
   public int seq_len; // Max sequence length
 
   public int head_size => dim / n_heads;
+  public int kv_dim => n_kv_heads * head_size;
 
   public override int GetHashCode()
   {
@@ -169,8 +170,8 @@ public class LayerPersistentState : IDisposable {
   public ComputeBuffer value_cache; // (seq_len, dim)
 
   public LayerPersistentState(LlamaConfig c, QuantizationModes quantMode) {
-    key_cache = ComputeUtils.CreateBlockBuffer(c.seq_len * c.dim, quantMode);
-    value_cache = ComputeUtils.CreateBlockBuffer(c.seq_len * c.dim, quantMode);
+    key_cache = ComputeUtils.CreateBlockBuffer(c.seq_len * c.kv_dim, quantMode);
+    value_cache = ComputeUtils.CreateBlockBuffer(c.seq_len * c.kv_dim, quantMode);
   }
 
   public void Dispose() {
@@ -206,6 +207,7 @@ public class RunState : IDisposable {
   public ComputeBuffer xb; // same, but inside a residual branch (dim,)
   public ComputeBuffer xb2; // an additional buffer just for convenience (dim,)
   public ComputeBuffer xbFixed; // used to output (dim,) vectors as fixed point
+  public ComputeBuffer xkvFixed; // used to output (kvDim,) vectors as fixed point
   public ComputeBuffer hb; // buffer for hidden dimension in the ffn (hidden_dim,)
   public ComputeBuffer hb2; // buffer for hidden dimension in the ffn (hidden_dim,)
   public ComputeBuffer hbFixed; // used to output (hidden_dim,) vectors as fixed point
@@ -229,12 +231,13 @@ public class RunState : IDisposable {
     xb = new ComputeBuffer(c.dim, sizeof(float));
     xb2 = new ComputeBuffer(c.dim, sizeof(float));
     xbFixed = new ComputeBuffer(c.dim, sizeof(int));
+    xkvFixed = new ComputeBuffer(c.kv_dim, sizeof(int));
     hb = new ComputeBuffer(c.hidden_dim, sizeof(float));
     hb2 = new ComputeBuffer(c.hidden_dim, sizeof(float));
     hbFixed = new ComputeBuffer(c.hidden_dim, sizeof(int));
     q = new ComputeBuffer(c.dim, sizeof(float));
-    k = new ComputeBuffer(c.dim, sizeof(float));
-    v = new ComputeBuffer(c.dim, sizeof(float));
+    k = new ComputeBuffer(c.kv_dim, sizeof(float));
+    v = new ComputeBuffer(c.kv_dim, sizeof(float));
     att = new ComputeBuffer(c.n_heads * c.seq_len, sizeof(float));
     logits = new ComputeBuffer(c.vocab_size, sizeof(float));
     logitsFixed = new ComputeBuffer(c.vocab_size, sizeof(int));
@@ -251,6 +254,7 @@ public class RunState : IDisposable {
     xb.Dispose();
     xb2.Dispose();
     xbFixed.Dispose();
+    xkvFixed.Dispose();
     hb.Dispose();
     hb2.Dispose();
     hbFixed.Dispose();

@@ -300,31 +300,35 @@ RWStructuredBuffer<float2> rope_q; // Query vectors
 RWStructuredBuffer<float2> rope_k; // Key vectors
 uint rope_head_size;
 uint rope_pos;
-uint rope_length; // Total length of the vectors
+uint rope_half_dim_vec;
+uint rope_kv_half_dim_vec;
 
 [numthreads(kThreadsPerGroup, 1, 1)]
 void Rope(uint3 id : SV_DispatchThreadID) {
     uint idx = id.x;
-    if (idx >= rope_length) return;
+    if (idx >= rope_half_dim_vec) return;
 
     uint i = idx * 2;
-    uint head_dim = i % rope_head_size;
+    uint head_idx = i % rope_head_size;
 
-    float freq = 1.0f / pow(10000.0f, head_dim / (float)rope_head_size);
+    float freq = 1.0f / pow(10000.0f, head_idx / (float)rope_head_size);
     float val = rope_pos * freq;
     float fcr = cos(val);
     float fci = sin(val);
     float2 fc = float2(fcr, fci);
-    
+
     float q0 = rope_q[idx].x;
     float q1 = rope_q[idx].y;
-    float k0 = rope_k[idx].x;
-    float k1 = rope_k[idx].y;
-
     rope_q[idx].x = q0 * fc.x - q1 * fc.y;
     rope_q[idx].y = q0 * fc.y + q1 * fc.x;
-    rope_k[idx].x = k0 * fc.x - k1 * fc.y;
-    rope_k[idx].y = k0 * fc.y + k1 * fc.x;
+
+    if (idx < rope_kv_half_dim_vec)
+    {
+        float k0 = rope_k[idx].x;
+        float k1 = rope_k[idx].y;
+        rope_k[idx].x = k0 * fc.x - k1 * fc.y;
+        rope_k[idx].y = k0 * fc.y + k1 * fc.x;
+    }
 }
 
 #pragma kernel SoftmaxExp
@@ -399,6 +403,7 @@ RWStructuredBuffer<float> compute_attention_att; // Attention scores
 
 uint compute_attention_head; // Which head we are processing
 uint compute_attention_head_size_vec; // Size of each head
+uint compute_attention_kv_div; // How many heads share a key/value vector
 uint compute_attention_pos; // Current position in the sequence
 uint compute_attention_dim_vec; // Dimension of embeddings
 uint compute_attention_seq_len; // Length of the sequence
@@ -415,7 +420,7 @@ void ComputeAttention(uint3 id : SV_DispatchThreadID, uint3 gid : SV_GroupThread
     }
 
     uint headOffset = compute_attention_head * compute_attention_head_size_vec;
-    uint k_offset = t * compute_attention_dim_vec + headOffset;
+    uint k_offset = (t * compute_attention_dim_vec + headOffset) / compute_attention_kv_div;
 
     // Compute attention score as dot product of q and k
     float score = 0;

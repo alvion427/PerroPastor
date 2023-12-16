@@ -26,7 +26,10 @@ public static class ComputeUtils {
   }
 
   public static int GetVectorizedLength(int rawLength) {
-    Debug.Assert(rawLength % 4 == 0);
+    //Debug.Assert(rawLength % 4 == 0);
+    if (rawLength % 4 != 0) {
+      Debug.LogError("Raw length is not a multiple of 4");
+    }
     return rawLength / 4;
   }
   

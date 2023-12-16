@@ -207,6 +207,10 @@ public class GGUFLoader : ModelLoaderBase {
   }
 
   public static LlamaConfig CreateConfig(GGUFMetaData metaData) {
+    // pad vocab size to a multiple of 4
+    int vocabSize = ((string[])metaData.KeyValues["tokenizer.ggml.tokens"]).Length;
+    vocabSize = (vocabSize + 3) & ~3;
+    
     object v;
     return new LlamaConfig() {
       dim = Convert.ToInt32(metaData.KeyValues["llama.embedding_length"]),
@@ -214,7 +218,7 @@ public class GGUFLoader : ModelLoaderBase {
       n_layers = Convert.ToInt32(metaData.KeyValues["llama.block_count"]),
       n_heads = Convert.ToInt32(metaData.KeyValues["llama.attention.head_count"]),
       n_kv_heads = Convert.ToInt32(metaData.KeyValues["llama.attention.head_count_kv"]),
-      vocab_size = ((string[])metaData.KeyValues["tokenizer.ggml.tokens"]).Length,
+      vocab_size = vocabSize,
       seq_len = Convert.ToInt32(metaData.KeyValues["llama.context_length"]),
       //seq_len = 512,
     };

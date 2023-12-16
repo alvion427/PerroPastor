@@ -140,7 +140,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 0
+  m_IsActive: 1
 --- !u!4 &54362380
 Transform:
   m_ObjectHideFlags: 0
@@ -154,6 +154,7 @@ Transform:
   m_ConstrainProportionsScale: 0
   m_Children:
   - {fileID: 581496848}
+  - {fileID: 61358655}
   m_Father: {fileID: 1748004754}
   m_RootOrder: 0
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
@@ -188,9 +189,81 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 3629b295345cda2458f9dc92eec361ca, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  ModelPath: llama-2-7b-chat.ggmlv3.q5_1.bin
-  ModelsDir: 
+  ModelPath: ggml-model-Q5_1.gguf
+  ModelsDir: C:\joev\models\OpenHermes-2.5-Mistral-7B
   CacheWeights: 1
+--- !u!1 &61358654
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 61358655}
+  - component: {fileID: 61358657}
+  - component: {fileID: 61358656}
+  m_Layer: 0
+  m_Name: TestChat
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &61358655
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 61358654}
+  m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 54362380}
+  m_RootOrder: 1
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &61358656
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 61358654}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 67472cf6de68ba7408a1ff3f0648ff1a, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  Conversation: {fileID: 61358657}
+  TextOutput: {fileID: 1678145045}
+  TextInput: {fileID: 1627557850}
+  SubmitButton: {fileID: 1996914178}
+--- !u!114 &61358657
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 61358654}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: f6a4210d14be1fa4db4ab00e64820fe7, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  Llama: {fileID: 54362381}
+  Prompt: '<|im_start|>user
+
+    What is the tallest mountain in the world?<|im_end|>'
+  Temperature: 0
+  RunOnStart: 256
+  Repeat: 0
+  PromptPrefix: 
+  PromptPostfix: 
+  TerminationSequence: 
+  UsePromptCache: 1
 --- !u!1 &88807965
 GameObject:
   m_ObjectHideFlags: 0
@@ -732,7 +805,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 1
+  m_IsActive: 0
 --- !u!4 &581496848
 Transform:
   m_ObjectHideFlags: 0
@@ -821,7 +894,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 1
+  m_IsActive: 0
 --- !u!114 &606020842
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -1395,7 +1468,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 1
+  m_IsActive: 0
 --- !u!4 &1324854357
 Transform:
   m_ObjectHideFlags: 0
@@ -2151,7 +2224,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   Llama: {fileID: 606020842}
   Prompt: 
-  Temperature: 0.9
+  Temperature: 0
   RunOnStart: 255
   Repeat: 0
   PromptPrefix: 
