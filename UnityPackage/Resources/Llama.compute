@@ -1,3 +1,23 @@
+/*
+.----. .----.  .--.  .----.    .-.   .-..-. .----..---. .----.   .--.  .-.   
+| {}  \| {_   / {} \ | {}  }   |  `.'  || |{ {__ {_   _}| {}  } / {} \ | |   
+|     /| {__ /  /\  \| .-. \   | |\ /| || |.-._} } | |  | .-. \/  /\  \| `--.
+`----' `----'`-'  `-'`-' `-'   `-' ` `-'`-'`----'  `-'  `-' `-'`-'  `-'`----'
+
+Don't judge this code for it's performance!  I have done almost no low level
+optimization of this code due to the fact that that the attention code still
+needs a near total rewrite.  It's easier to debug in its current state, but I
+have already begun a rewrite the way it should be:
+- Attention rewritten to compute small blocks of attention entirely within local
+  memory, without writing interemediate values (ie attention weights) out to main
+  memory.  (see https://arxiv.org/abs/2112.05682)
+- Fused attention kernels.  Attention should only be two kernels, one for computing 
+  attention and one for the divide at the end.  This replaces three, much slower kernels.
+
+These changes will yield more performance than anything else I could do, and should be 
+done before I do any low level optimizations.
+*/
+
 #pragma multi_compile QUANT_WEIGHT_32 QUANT_WEIGHT_16 QUANT_WEIGHT_Q5_1 QUANT_WEIGHT_Q8_0
 //#define QUANT_WEIGHT_Q5_1 1
 #pragma multi_compile QUANT_RUNTIME_32 QUANT_RUNTIME_16
